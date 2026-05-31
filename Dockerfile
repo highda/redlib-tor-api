@@ -1,20 +1,32 @@
-FROM alpine:3.19
+FROM cgr.dev/chainguard/rust:latest-dev AS builder
 
-ARG TARGET
+WORKDIR /redlib
 
-RUN apk add --no-cache curl
+# boring-sys needs cmake + clang for BoringSSL build + bindgen.
+USER 0
+RUN apk add --no-cache cmake clang perl
+# download (most) dependencies in their own layer
+COPY Cargo.lock Cargo.toml ./
+RUN mkdir src && echo "fn main() { panic!(\"why am i running?\") }" > src/main.rs
+RUN cargo build --release --locked --bin redlib
+RUN rm ./src/main.rs && rmdir ./src
 
-RUN curl -L "https://github.com/redlib-org/redlib/releases/latest/download/redlib-${TARGET}.tar.gz" | \
-    tar xz -C /usr/local/bin/
+# copy the source and build the redlib binary
+COPY . ./
+# Update the mtime of the main file to force a rebuild of the binary
+RUN touch src/main.rs
+RUN cargo build --release --locked --bin redlib
+RUN echo "finished building redlib!"
 
-RUN adduser --home /nonexistent --no-create-home --disabled-password redlib
-USER redlib
+########################
+## release image
+########################
+FROM cgr.dev/chainguard/glibc-dynamic:latest AS release
 
-# Tell Docker to expose port 8080
+# Import redlib binary from builder
+COPY --from=builder /redlib/target/release/redlib /redlib
+
+# Document that we intend to expose port 8080
 EXPOSE 8080
 
-# Run a healthcheck every minute to make sure redlib is functional
-HEALTHCHECK --interval=1m --timeout=3s CMD wget --spider -q http://localhost:8080/settings || exit 1
-
-CMD ["redlib"]
-
+CMD ["/redlib"]

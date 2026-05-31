@@ -2,7 +2,7 @@
 {% import "utils.html" as utils %}
 
 {% block title %}
-	{% if single_thread %}
+	{% if single_thread && comments.len() > 0 %}
 		{{ comments[0].author.name }} comments on {{ post.title }} - r/{{ post.community }}
 	{% else %}
 		{{ post.title }} - r/{{ post.community }}
@@ -53,7 +53,7 @@
 
 		<!-- SORT FORM -->
        <div id="commentQueryForms">
-		<form id="sort">
+		<form class="comment_control_form">
 			<p id="comment_count">{{post.comments.0}} {% if post.comments.0 == "1" %}comment{% else %}comments{% endif %} <span id="sorted_by">sorted by </span></p>
 			<select name="sort" title="Sort comments by" id="commentSortSelect"> 
 				{% call utils::options(sort, ["confidence", "top", "new", "controversial", "old"], "confidence") %}
@@ -67,7 +67,7 @@
       </button>
       </form>
       <!-- SEARCH FORM -->
-      <form id="sort">
+      <form class="comment_control_form">
         <input id="search" class="commentQuery" type="search" name="q" value="{{ comment_query }}" placeholder="Search comments">
         <input type="hidden" name="type" value="comment">
       </form>
@@ -80,18 +80,20 @@
       </div>
 
 		<!-- COMMENTS -->
-		{% for c in comments -%}
-		<div class="thread">
-			{% if single_thread %}
-			<p class="thread_nav"><a href="{{ post.permalink }}">View all comments</a></p>
-			{% if c.parent_kind == "t1" %}
-			<p class="thread_nav"><a href="?context=9999">Show parent comments</a></p>
-			{% endif %}
-			{% endif %}
-			
-			{{ c.render().unwrap()|safe }}
+		<div id="comments">
+			{% for c in comments -%}
+			<div class="thread">
+				{% if single_thread %}
+				<p class="thread_nav"><a href="{{ post.permalink }}">View all comments</a></p>
+				{% if c.parent_kind == "t1" %}
+				<p class="thread_nav"><a href="?context=9999">Show parent comments</a></p>
+				{% endif %}
+				{% endif %}
+
+				{{ c.render().unwrap()|safe }}
+			</div>
+			{%- endfor %}
 		</div>
-		{%- endfor %}
 
 	</div>
 {% endblock %}

@@ -606,6 +606,7 @@ checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
  "block-buffer",
  "crypto-common",
+ "subtle",
 ]
 
 [[package]]
@@ -956,6 +957,15 @@ name = "hermit-abi"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fbd780fe5cc30f81464441920d82ac8740e2e46b29a6fad543ddd075229ce37e"
+
+[[package]]
+name = "hmac"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
+dependencies = [
+ "digest",
+]
 
 [[package]]
 name = "htmlescape"
@@ -1624,7 +1634,7 @@ dependencies = [
 
 [[package]]
 name = "redlib"
-version = "0.36.0"
+version = "0.36.0-yunyun"
 dependencies = [
  "arc-swap",
  "askama",
@@ -1642,6 +1652,7 @@ dependencies = [
  "fake_user_agent",
  "fastrand",
  "futures-lite",
+ "hmac",
  "htmlescape",
  "hyper",
  "libflate",
@@ -1661,6 +1672,7 @@ dependencies = [
  "serde_json_path",
  "serde_urlencoded",
  "serde_yaml",
+ "sha2",
  "tegen",
  "time",
  "tokio",
@@ -2089,6 +2101,12 @@ name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
+
+[[package]]
+name = "subtle"
+version = "2.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "syn"

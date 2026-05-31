@@ -362,8 +362,10 @@ main {
     width: 100%;
     border-radius: 5px;
     max-width: 750px;
+    min-width: 0;
     overflow: inherit;
 }
+
 @media screen and (max-width: 800px) {
     #column_one { max-width: unset; }
 }
@@ -598,8 +600,12 @@ aside {
 
 #feed_list {
     position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
     display: flex;
+    width: max-content;
     min-width: 100%;
+    max-width: min(420px, calc(100vw - 20px));
     max-height: 500px;
     border-radius: 5px;
     box-shadow: var(--shadow);
@@ -614,11 +620,15 @@ aside {
     opacity: 0.5;
     padding: 5px 20px;
     margin-top: 10px;
+    white-space: nowrap;
 }
 
 #feed_list > a {
     padding: 10px 20px;
     transition: 0.2s background;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 #feed_list > .selected {
@@ -795,6 +805,7 @@ button.submit:hover > svg {
 }
 
 #sort,
+.comment_control_form,
 #search_sort {
     display: flex;
     align-items: stretch;
@@ -960,6 +971,8 @@ a.search_subreddit:hover {
 
 .thread {
     word-break: break-word;
+    max-width: 100%;
+    min-width: 0;
 }
 
 .thread_nav {
@@ -972,7 +985,11 @@ a.search_subreddit:hover {
     border-radius: 5px;
     background: var(--post);
     box-shadow: var(--shadow);
+    box-sizing: border-box;
     display: grid;
+    max-width: 100%;
+    min-width: 0;
+    width: 100%;
     transition: 0.2s background;
     grid-template:
         "post_score post_header post_thumbnail" auto
@@ -1013,6 +1030,8 @@ a.search_subreddit:hover {
     margin: 15px 20px 5px 12px;
     grid-area: post_header;
     line-height: 25px;
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 .post_subreddit {
@@ -1382,7 +1401,11 @@ a.search_subreddit:hover {
 .comment {
     margin: 10px 0;
     border-radius: 5px;
+    box-sizing: border-box;
     display: flex;
+    max-width: 100%;
+    min-width: 0;
+    width: 100%;
 }
 
 .comment img {
@@ -1450,14 +1473,21 @@ a.search_subreddit:hover {
     flex-grow: 1;
     flex-shrink: 1;
     min-width: 0;
+    max-width: 100%;
 }
 
-.comment:has([id]) .comment_data > * {
-    margin-right: 5px;
+.comment_data {
+    align-items: center;
+    column-gap: 5px;
+    display: flex;
+    flex-wrap: wrap;
+    max-width: 100%;
+    min-width: 0;
+    overflow-wrap: normal;
+    row-gap: 3px;
 }
 
 .comment:not([id]) .comment_data {
-    display: inline-flex;
     max-width: 100%;
 }
 
@@ -1484,7 +1514,11 @@ a.search_subreddit:hover {
     font-weight: normal;
     padding: 5px 5px;
     margin: 5px 0;
-    overflow: auto;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: visible;
+    overflow-wrap: anywhere;
 }
 
 .comment_body.highlighted,
@@ -1507,12 +1541,23 @@ a.search_subreddit:hover {
     font-style: italic;
     padding: 5px 5px;
     margin: 5px 0;
-    overflow: auto;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: visible;
+    overflow-wrap: anywhere;
 }
 
 .deeper_replies {
     color: var(--accent);
     margin-left: 15px;
+}
+
+.replies {
+    margin: 0;
+    max-width: 100%;
+    min-width: 0;
+    padding: 0;
 }
 
 ::marker {

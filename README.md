@@ -417,6 +417,12 @@ Assign a default value for each instance-specific setting by passing environment
 | `PORT`                    | Integer 0-65535 | `8080`                 | The **internal** port Redlib listens on.                                                                  |
 | `ENABLE_RSS`              | `["on", "off"]` | `off`                  | Enables RSS feed generation.                                                                              |
 | `FULL_URL`                | String          | (empty)                | Allows for proper URLs (for now, only needed by RSS)                                                      |
+| `USE_REDDIT_ONION`        | `["on", "off"]` | `off`                  | Uses Reddit onion hostnames for outbound Reddit/OAuth/media requests. Requires a Tor-capable proxy.       |
+| `FINGERPRINTING`          | `["on", "off"]` | `off`                  | Enables a browser fingerprinting gate for requests that do not already have a valid validation cookie.     |
+| `FINGERPRINT_SECRET`      | String          | (unset)                | Secret used to sign validation cookies. Set this when fingerprinting is enabled.                           |
+| `FINGERPRINT_MAX_AGE_SECONDS` | Integer      | `86400`                | How long a successful fingerprint validation is trusted.                                                   |
+| `FINGERPRINT_SCORE_THRESHOLD` | Integer      | `50`                   | Fingerprint rejection threshold; lower values block more aggressively.                                     |
+| `FINGERPRINT_BLOCKLIST`   | Comma-separated hex IDs | (empty)        | Fingerprint IDs to always reject.                                                                          |
 
 ## Default user settings
 
@@ -424,7 +430,7 @@ Assign a default value for each user-modifiable setting by passing environment v
 
 | Name                                | Possible values                                                                                                                                                                                                                 | Default value |
 |-------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------|
-| `THEME`                             | `["system", "light", "dark", "black", "dracula", "nord", "laserwave", "violet", "gold", "rosebox", "gruvboxdark", "gruvboxlight", "tokyoNight", "icebergDark", "doomone", "libredditBlack", "libredditDark", "libredditLight"]` | `system`      |
+| `THEME`                             | `["system", "light", "dark", "black", "dracula", "nord", "laserwave", "violet", "gold", "rosebox", "gruvboxdark", "gruvboxlight", "tokyoNight", "icebergDark", "doomone", "libredditBlack", "libredditDark", "libredditLight", "catppuccinLatte", "catppuccinFrappe", "catppuccinMacchiato", "catppuccinMocha"]` | `system`      |
 | `FRONT_PAGE`                        | `["default", "popular", "all"]`                                                                                                                                                                                                 | `default`     |
 | `LAYOUT`                            | `["card", "clean", "compact"]`                                                                                                                                                                                                  | `card`        |
 | `WIDE`                              | `["on", "off"]`                                                                                                                                                                                                                 | `off`         |
@@ -455,6 +461,9 @@ Redlib [supports](https://docs.rs/wreq/latest/wreq/#proxies) proxy usage using t
 - `socks4a://` is the scheme for socks4a proxy
 - `socks5://` is the scheme for socks5 proxy
 - `socks5h://` is the scheme for socks5h proxy
+
+For Tor, use `ALL_PROXY=socks5h://127.0.0.1:9050` and set `REDLIB_USE_REDDIT_ONION=on` to send Reddit
+API, OAuth, and media proxy requests to Reddit's onion hostnames.
 
 ## Security
 

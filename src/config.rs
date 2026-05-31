@@ -106,8 +106,32 @@ pub struct Config {
 	#[serde(rename = "REDLIB_FULL_URL")]
 	pub(crate) full_url: Option<String>,
 
+	#[serde(rename = "REDLIB_USE_REDDIT_ONION")]
+	pub(crate) use_reddit_onion: Option<String>,
+
 	#[serde(rename = "REDLIB_DEFAULT_REMOVE_DEFAULT_FEEDS")]
 	pub(crate) default_remove_default_feeds: Option<String>,
+
+	#[serde(rename = "REDLIB_FINGERPRINTING")]
+	#[serde(alias = "LIBREDDIT_FINGERPRINTING")]
+	pub(crate) fingerprinting: Option<String>,
+
+	#[serde(rename = "REDLIB_FINGERPRINT_MAX_AGE_SECONDS")]
+	#[serde(alias = "LIBREDDIT_FINGERPRINT_MAX_AGE_SECONDS")]
+	pub(crate) fingerprint_max_age_seconds: Option<String>,
+
+	#[serde(rename = "REDLIB_FINGERPRINT_SCORE_THRESHOLD")]
+	#[serde(alias = "LIBREDDIT_FINGERPRINT_SCORE_THRESHOLD")]
+	pub(crate) fingerprint_score_threshold: Option<String>,
+
+	#[serde(rename = "REDLIB_FINGERPRINT_BLOCKLIST")]
+	#[serde(alias = "LIBREDDIT_FINGERPRINT_BLOCKLIST")]
+	pub(crate) fingerprint_blocklist: Option<String>,
+
+	#[serde(rename = "REDLIB_FINGERPRINT_SECRET")]
+	#[serde(alias = "LIBREDDIT_FINGERPRINT_SECRET")]
+	#[serde(skip_serializing)]
+	pub(crate) fingerprint_secret: Option<String>,
 }
 
 impl Config {
@@ -155,7 +179,13 @@ impl Config {
 			pushshift: parse("REDLIB_PUSHSHIFT_FRONTEND"),
 			enable_rss: parse("REDLIB_ENABLE_RSS"),
 			full_url: parse("REDLIB_FULL_URL"),
+			use_reddit_onion: parse("REDLIB_USE_REDDIT_ONION"),
 			default_remove_default_feeds: parse("REDLIB_DEFAULT_REMOVE_DEFAULT_FEEDS"),
+			fingerprinting: parse("REDLIB_FINGERPRINTING"),
+			fingerprint_max_age_seconds: parse("REDLIB_FINGERPRINT_MAX_AGE_SECONDS"),
+			fingerprint_score_threshold: parse("REDLIB_FINGERPRINT_SCORE_THRESHOLD"),
+			fingerprint_blocklist: parse("REDLIB_FINGERPRINT_BLOCKLIST"),
+			fingerprint_secret: parse("REDLIB_FINGERPRINT_SECRET"),
 		}
 	}
 }
@@ -185,7 +215,13 @@ fn get_setting_from_config(name: &str, config: &Config) -> Option<String> {
 		"REDLIB_PUSHSHIFT_FRONTEND" => config.pushshift.clone(),
 		"REDLIB_ENABLE_RSS" => config.enable_rss.clone(),
 		"REDLIB_FULL_URL" => config.full_url.clone(),
+		"REDLIB_USE_REDDIT_ONION" => config.use_reddit_onion.clone(),
 		"REDLIB_DEFAULT_REMOVE_DEFAULT_FEEDS" => config.default_remove_default_feeds.clone(),
+		"REDLIB_FINGERPRINTING" => config.fingerprinting.clone(),
+		"REDLIB_FINGERPRINT_MAX_AGE_SECONDS" => config.fingerprint_max_age_seconds.clone(),
+		"REDLIB_FINGERPRINT_SCORE_THRESHOLD" => config.fingerprint_score_threshold.clone(),
+		"REDLIB_FINGERPRINT_BLOCKLIST" => config.fingerprint_blocklist.clone(),
+		"REDLIB_FINGERPRINT_SECRET" => config.fingerprint_secret.clone(),
 		_ => None,
 	}
 }

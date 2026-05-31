@@ -128,7 +128,12 @@ impl InstanceInfo {
 				["Pushshift frontend", &convert(&self.config.pushshift)],
 				["RSS enabled", &convert(&self.config.enable_rss)],
 				["Full URL", &convert(&self.config.full_url)],
+				["Use Reddit onion URLs", &convert(&self.config.use_reddit_onion)],
 				["Remove default feeds", &convert(&self.config.default_remove_default_feeds)],
+				["Fingerprinting", &convert(&self.config.fingerprinting)],
+				["Fingerprint max age (s)", &convert(&self.config.fingerprint_max_age_seconds)],
+				["Fingerprint score threshold", &convert(&self.config.fingerprint_score_threshold)],
+				["Fingerprint blocklist", &convert(&self.config.fingerprint_blocklist)],
 				//TODO: fallback to crate::config::DEFAULT_PUSHSHIFT_FRONTEND
 			])
 			.with_header_row(["Settings"]),
@@ -170,7 +175,12 @@ impl InstanceInfo {
 				Pushshift frontend: {:?}\n
 				RSS enabled: {:?}\n
 				Full URL: {:?}\n
+				Use Reddit onion URLs: {:?}\n
 				Remove default feeds: {:?}\n
+				Fingerprinting: {:?}\n
+				Fingerprint max age (s): {:?}\n
+				Fingerprint score threshold: {:?}\n
+				Fingerprint blocklist: {:?}\n
                 Config:\n
                     Banner: {:?}\n
                     Hide awards: {:?}\n
@@ -195,10 +205,15 @@ impl InstanceInfo {
 					self.deploy_unix_ts,
 					self.compile_mode,
 					self.config.sfw_only,
+					self.config.pushshift,
 					self.config.enable_rss,
 					self.config.full_url,
+					self.config.use_reddit_onion,
 					self.config.default_remove_default_feeds,
-					self.config.pushshift,
+					self.config.fingerprinting,
+					self.config.fingerprint_max_age_seconds,
+					self.config.fingerprint_score_threshold,
+					self.config.fingerprint_blocklist,
 					self.config.banner,
 					self.config.default_hide_awards,
 					self.config.default_hide_score,

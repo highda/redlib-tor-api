@@ -5,6 +5,14 @@
 # - rg
 # - jq
 
+APKMIRROR_PAGES="${APKMIRROR_PAGES:-5}"
+APKMIRROR_DELAY_SECONDS="${APKMIRROR_DELAY_SECONDS:-5}"
+APKMIRROR_USER_AGENT="${APKMIRROR_USER_AGENT:-Mozilla/5.0 (X11; Linux x86_64; rv:147.0) Gecko/20100101 Firefox/147.0}"
+
+fetch_apkmirror() {
+  curl -fsSL -H "User-Agent: ${APKMIRROR_USER_AGENT}" "$1"
+}
+
 # Fetch iOS app versions
 ios_version_list=$(curl -s "https://ipaarchive.com/app/usa/1064216828" | rg "(20\d{2}\.\d+.\d+) / (\d+)" --only-matching -r "Version \$1/Build \$2" | sort | uniq)
 
@@ -38,24 +46,19 @@ done
 # Close the array in the source file
 echo "];" >> "$filename"
 
-# Fetch Android app versions
-page_1=$(curl -s "https://apkcombo.com/reddit/com.reddit.frontpage/old-versions/" | rg "<a class=\"ver-item\" href=\"(/reddit/com\.reddit\.frontpage/download/phone-20\d{2}\.\d+\.\d+-apk)\" rel=\"nofollow\">" -r "https://apkcombo.com\$1" | sort | uniq | sed 's/      //g')
-# Append with pages
-page_2=$(curl -s "https://apkcombo.com/reddit/com.reddit.frontpage/old-versions?page=2" | rg "<a class=\"ver-item\" href=\"(/reddit/com\.reddit\.frontpage/download/phone-20\d{2}\.\d+\.\d+-apk)\" rel=\"nofollow\">" -r "https://apkcombo.com\$1" | sort | uniq | sed 's/      //g')
-page_3=$(curl -s "https://apkcombo.com/reddit/com.reddit.frontpage/old-versions?page=3" | rg "<a class=\"ver-item\" href=\"(/reddit/com\.reddit\.frontpage/download/phone-20\d{2}\.\d+\.\d+-apk)\" rel=\"nofollow\">" -r "https://apkcombo.com\$1" | sort | uniq | sed 's/      //g')
-page_4=$(curl -s "https://apkcombo.com/reddit/com.reddit.frontpage/old-versions?page=4" | rg "<a class=\"ver-item\" href=\"(/reddit/com\.reddit\.frontpage/download/phone-20\d{2}\.\d+\.\d+-apk)\" rel=\"nofollow\">" -r "https://apkcombo.com\$1" | sort | uniq | sed 's/      //g')
-page_5=$(curl -s "https://apkcombo.com/reddit/com.reddit.frontpage/old-versions?page=5" | rg "<a class=\"ver-item\" href=\"(/reddit/com\.reddit\.frontpage/download/phone-20\d{2}\.\d+\.\d+-apk)\" rel=\"nofollow\">" -r "https://apkcombo.com\$1" | sort | uniq | sed 's/      //g')
-
-# Concatenate all pages
-versions="${page_1}"
-versions+=$'\n'
-versions+="${page_2}"
-versions+=$'\n'
-versions+="${page_3}"
-versions+=$'\n'
-versions+="${page_4}"
-versions+=$'\n'
-versions+="${page_5}"
+# Fetch Android app versions from APKMirror.
+versions=""
+for page in $(seq 1 "$APKMIRROR_PAGES"); do
+  if [ "$page" = "1" ]; then
+    url="https://www.apkmirror.com/uploads/?devcategory=redditinc"
+  else
+    url="https://www.apkmirror.com/uploads/page/${page}/?devcategory=redditinc"
+  fi
+  page_versions=$(fetch_apkmirror "$url" | rg 'href="(/apk/redditinc/reddit/reddit-[0-9]+-[0-9]+-[0-9]+-release/)"' -o -r "https://www.apkmirror.com\$1")
+  versions+="${page_versions}"
+  versions+=$'\n'
+done
+versions=$(echo "$versions" | sort -u | sed '/^$/d')
 
 # Count the number of lines in the version list
 android_count=$(echo "$versions" | wc -l)
@@ -70,11 +73,16 @@ num=0
 # For each in versions, curl the page and extract the build number
 echo "$versions" | while IFS= read -r line; do
   num=$((num+1))
-  fetch_page=$(curl -s "$line")
-  build=$(echo "$fetch_page" | rg "<span class=\"vercode\">\((\d+)\)</span>" --only-matching -r "\$1" | head -n1)
-  version=$(echo "$fetch_page" | rg "<span class=\"vername\">Reddit (20\d{2}\.\d+\.\d+)</span>" --only-matching -r "\$1" | head -n1)
+  fetch_page=$(fetch_apkmirror "$line")
+  build=$(echo "$fetch_page" | rg 'class="colorLightBlack">([0-9]+)</span>' -o -r "\$1" | head -n1)
+  version=$(echo "$line" | rg 'reddit-([0-9]+-[0-9]+-[0-9]+)-release' -o -r "\$1" | sed 's/-/./g')
+  if [ -z "$build" ] || [ -z "$version" ]; then
+    echo -e "[$num/$android_count] Skipping \e[33m$line\e[0m; version or build not found."
+    continue
+  fi
   echo "	\"Version $version/Build $build\"," >> "$filename"
   echo -e "[$num/$android_count] Fetched \e[32mVersion $version/Build $build\e[0m."
+  sleep "$APKMIRROR_DELAY_SECONDS"
 done
 
 # Close the array in the source file

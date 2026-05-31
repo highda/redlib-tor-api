@@ -2,6 +2,7 @@
 #![allow(clippy::cmp_owned)]
 
 use crate::config::{self, get_setting};
+use crate::reddit_urls::{self, REDDIT_DOT_ONION, REDDIT_MEDIA_ONION, REDDIT_ONION, REDDIT_STATIC_ONION};
 use crate::{client::json, server::RequestExt};
 use askama::Template;
 use cookie::Cookie;
@@ -1000,38 +1001,63 @@ pub async fn catch_random(sub: &str, additional: &str) -> Result<Response<Body>,
 	}
 }
 
-static REGEX_URL_WWW: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://www\.reddit\.com/(.*)").unwrap());
-static REGEX_URL_OLD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://old\.reddit\.com/(.*)").unwrap());
-static REGEX_URL_NP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://np\.reddit\.com/(.*)").unwrap());
-static REGEX_URL_PLAIN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://reddit\.com/(.*)").unwrap());
-static REGEX_URL_VIDEOS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://v\.redd\.it/(.*)/DASH_([0-9]{2,4}(\.mp4|$|\?source=fallback))").unwrap());
-static REGEX_URL_VIDEOS_HLS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://v\.redd\.it/(.+)/(HLSPlaylist\.m3u8.*)$").unwrap());
-static REGEX_URL_IMAGES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://i\.redd\.it/(.*)").unwrap());
-static REGEX_URL_THUMBS_A: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://a\.thumbs\.redditmedia\.com/(.*)").unwrap());
-static REGEX_URL_THUMBS_B: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://b\.thumbs\.redditmedia\.com/(.*)").unwrap());
-static REGEX_URL_EMOJI: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://emoji\.redditmedia\.com/(.*)/(.*)").unwrap());
-static REGEX_URL_PREVIEW: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://preview\.redd\.it/(.*)").unwrap());
-static REGEX_URL_EXTERNAL_PREVIEW: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://external\-preview\.redd\.it/(.*)").unwrap());
-static REGEX_URL_STYLES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://styles\.redditmedia\.com/(.*)").unwrap());
-static REGEX_URL_STATIC_MEDIA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://www\.redditstatic\.com/(.*)").unwrap());
+static REGEX_URL_WWW: LazyLock<Regex> =
+	LazyLock::new(|| Regex::new(r"https?://www\.(?:reddit\.com|reddittorjg6rue252oqsxryoxengawnmo46qy4kyii5wtqnwfj4ooad\.onion)/(.*)").unwrap());
+static REGEX_URL_OLD: LazyLock<Regex> =
+	LazyLock::new(|| Regex::new(r"https?://old\.(?:reddit\.com|reddittorjg6rue252oqsxryoxengawnmo46qy4kyii5wtqnwfj4ooad\.onion)/(.*)").unwrap());
+static REGEX_URL_NP: LazyLock<Regex> =
+	LazyLock::new(|| Regex::new(r"https?://np\.(?:reddit\.com|reddittorjg6rue252oqsxryoxengawnmo46qy4kyii5wtqnwfj4ooad\.onion)/(.*)").unwrap());
+static REGEX_URL_PLAIN: LazyLock<Regex> =
+	LazyLock::new(|| Regex::new(r"https?://(?:reddit\.com|reddittorjg6rue252oqsxryoxengawnmo46qy4kyii5wtqnwfj4ooad\.onion)/(.*)").unwrap());
+static REGEX_URL_OAUTH: LazyLock<Regex> =
+	LazyLock::new(|| Regex::new(r"https?://oauth\.(?:reddit\.com|reddittorjg6rue252oqsxryoxengawnmo46qy4kyii5wtqnwfj4ooad\.onion)/(.*)").unwrap());
+static REGEX_URL_VIDEOS: LazyLock<Regex> = LazyLock::new(|| {
+	Regex::new(r"https?://v\.(?:redd\.it|redditdotzhmh3mao6r5i2j7speppwqkizwo7vksy3mbz5iz7rlhocyd\.onion)/(.*)/(DASH|CMAF)_([0-9]{2,4}(\.mp4|$|\?source=fallback))").unwrap()
+});
+static REGEX_URL_VIDEOS_HLS: LazyLock<Regex> =
+	LazyLock::new(|| Regex::new(r"https?://v\.(?:redd\.it|redditdotzhmh3mao6r5i2j7speppwqkizwo7vksy3mbz5iz7rlhocyd\.onion)/(.+)/(HLSPlaylist\.m3u8.*)$").unwrap());
+static REGEX_URL_IMAGES: LazyLock<Regex> =
+	LazyLock::new(|| Regex::new(r"https?://i\.(?:redd\.it|redditdotzhmh3mao6r5i2j7speppwqkizwo7vksy3mbz5iz7rlhocyd\.onion)/(.*)").unwrap());
+static REGEX_URL_THUMBS_A: LazyLock<Regex> =
+	LazyLock::new(|| Regex::new(r"https?://a\.(?:thumbs\.redditmedia\.com|thumbs\.reddit4hkhcpcf2mkmuotdlk3gknuzcatsw4f7dx7twdkwmtrt6ax4qd\.onion)/(.*)").unwrap());
+static REGEX_URL_THUMBS_B: LazyLock<Regex> =
+	LazyLock::new(|| Regex::new(r"https?://b\.(?:thumbs\.redditmedia\.com|thumbs\.reddit4hkhcpcf2mkmuotdlk3gknuzcatsw4f7dx7twdkwmtrt6ax4qd\.onion)/(.*)").unwrap());
+static REGEX_URL_EMOJI: LazyLock<Regex> =
+	LazyLock::new(|| Regex::new(r"https?://emoji\.(?:redditmedia\.com|reddit4hkhcpcf2mkmuotdlk3gknuzcatsw4f7dx7twdkwmtrt6ax4qd\.onion)/(.*)/(.*)").unwrap());
+static REGEX_URL_PREVIEW: LazyLock<Regex> =
+	LazyLock::new(|| Regex::new(r"https?://preview\.(?:redd\.it|redditdotzhmh3mao6r5i2j7speppwqkizwo7vksy3mbz5iz7rlhocyd\.onion)/(.*)").unwrap());
+static REGEX_URL_EXTERNAL_PREVIEW: LazyLock<Regex> =
+	LazyLock::new(|| Regex::new(r"https?://external\-preview\.(?:redd\.it|redditdotzhmh3mao6r5i2j7speppwqkizwo7vksy3mbz5iz7rlhocyd\.onion)/(.*)").unwrap());
+static REGEX_URL_STYLES: LazyLock<Regex> =
+	LazyLock::new(|| Regex::new(r"https?://styles\.(?:redditmedia\.com|reddit4hkhcpcf2mkmuotdlk3gknuzcatsw4f7dx7twdkwmtrt6ax4qd\.onion)/(.*)").unwrap());
+static REGEX_URL_STATIC_MEDIA: LazyLock<Regex> =
+	LazyLock::new(|| Regex::new(r"https?://(?:www\.)?(?:redditstatic\.com|reddittic34i5gtjcnm2fb7fv2eyop4vbxquuc36prnbs7d2kp3saoqd\.onion)/(.*)").unwrap());
 
 /// Direct urls to proxy if proxy is enabled
 pub fn format_url(url: &str) -> String {
 	if url.is_empty() || url == "self" || url == "default" || url == "nsfw" || url == "spoiler" {
 		String::new()
 	} else {
-		Url::parse(url).map_or(url.to_string(), |parsed| {
-			let domain = parsed.domain().unwrap_or_default();
+		let normalized = reddit_urls::to_onion_url(url);
+		let url_ref = normalized.as_str();
+		match Url::parse(url_ref) {
+			Err(_) => normalized,
+			Ok(parsed) => {
+				let domain = parsed.domain().unwrap_or_default();
 
-			let capture = |regex: &Regex, format: &str, segments: i16| {
-				regex.captures(url).map_or(String::new(), |caps| match segments {
-					1 => [format, &caps[1]].join(""),
-					2 => [format, &caps[1], "/", &caps[2]].join(""),
-					_ => String::new(),
-				})
-			};
+				let capture = |regex: &Regex, format: &str, segments: i16| {
+					regex.captures(url_ref).map_or(String::new(), |caps| match segments {
+						1 => [format, &caps[1]].join(""),
+						2 => [format, &caps[1], "/", &caps[2]].join(""),
+						3 => {
+							let media_format = caps[2].to_ascii_lowercase();
+							[format, &caps[1], "/", &media_format, "/", &caps[3]].join("")
+						}
+						_ => String::new(),
+					})
+				};
 
-			macro_rules! chain {
+				macro_rules! chain {
 				() => {
 					{
 						String::new()
@@ -1052,23 +1078,42 @@ pub fn format_url(url: &str) -> String {
 				};
 			}
 
-			match domain {
-				"www.reddit.com" => capture(&REGEX_URL_WWW, "/", 1),
-				"old.reddit.com" => capture(&REGEX_URL_OLD, "/", 1),
-				"np.reddit.com" => capture(&REGEX_URL_NP, "/", 1),
-				"reddit.com" => capture(&REGEX_URL_PLAIN, "/", 1),
-				"v.redd.it" => chain!(capture(&REGEX_URL_VIDEOS, "/vid/", 2), capture(&REGEX_URL_VIDEOS_HLS, "/hls/", 2)),
-				"i.redd.it" => capture(&REGEX_URL_IMAGES, "/img/", 1),
-				"a.thumbs.redditmedia.com" => capture(&REGEX_URL_THUMBS_A, "/thumb/a/", 1),
-				"b.thumbs.redditmedia.com" => capture(&REGEX_URL_THUMBS_B, "/thumb/b/", 1),
-				"emoji.redditmedia.com" => capture(&REGEX_URL_EMOJI, "/emoji/", 2),
-				"preview.redd.it" => capture(&REGEX_URL_PREVIEW, "/preview/pre/", 1),
-				"external-preview.redd.it" => capture(&REGEX_URL_EXTERNAL_PREVIEW, "/preview/external-pre/", 1),
-				"styles.redditmedia.com" => capture(&REGEX_URL_STYLES, "/style/", 1),
-				"www.redditstatic.com" => capture(&REGEX_URL_STATIC_MEDIA, "/static/", 1),
-				_ => url.to_string(),
+				let formatted = match domain {
+					"www.reddit.com" => capture(&REGEX_URL_WWW, "/", 1),
+					"old.reddit.com" => capture(&REGEX_URL_OLD, "/", 1),
+					"np.reddit.com" => capture(&REGEX_URL_NP, "/", 1),
+					"reddit.com" => capture(&REGEX_URL_PLAIN, "/", 1),
+					REDDIT_ONION => capture(&REGEX_URL_PLAIN, "/", 1),
+					domain if domain == format!("www.{REDDIT_ONION}") => capture(&REGEX_URL_WWW, "/", 1),
+					domain if domain == format!("old.{REDDIT_ONION}") => capture(&REGEX_URL_OLD, "/", 1),
+					domain if domain == format!("np.{REDDIT_ONION}") => capture(&REGEX_URL_NP, "/", 1),
+					"oauth.reddit.com" => capture(&REGEX_URL_OAUTH, "/", 1),
+					domain if domain == format!("oauth.{REDDIT_ONION}") => capture(&REGEX_URL_OAUTH, "/", 1),
+					"v.redd.it" => chain!(capture(&REGEX_URL_VIDEOS, "/vid/", 3), capture(&REGEX_URL_VIDEOS_HLS, "/hls/", 2)),
+					domain if domain == format!("v.{REDDIT_DOT_ONION}") => chain!(capture(&REGEX_URL_VIDEOS, "/vid/", 3), capture(&REGEX_URL_VIDEOS_HLS, "/hls/", 2)),
+					"i.redd.it" => capture(&REGEX_URL_IMAGES, "/img/", 1),
+					domain if domain == format!("i.{REDDIT_DOT_ONION}") => capture(&REGEX_URL_IMAGES, "/img/", 1),
+					"a.thumbs.redditmedia.com" => capture(&REGEX_URL_THUMBS_A, "/thumb/a/", 1),
+					domain if domain == format!("a.thumbs.{REDDIT_MEDIA_ONION}") => capture(&REGEX_URL_THUMBS_A, "/thumb/a/", 1),
+					"b.thumbs.redditmedia.com" => capture(&REGEX_URL_THUMBS_B, "/thumb/b/", 1),
+					domain if domain == format!("b.thumbs.{REDDIT_MEDIA_ONION}") => capture(&REGEX_URL_THUMBS_B, "/thumb/b/", 1),
+					"emoji.redditmedia.com" => capture(&REGEX_URL_EMOJI, "/emoji/", 2),
+					domain if domain == format!("emoji.{REDDIT_MEDIA_ONION}") => capture(&REGEX_URL_EMOJI, "/emoji/", 2),
+					"preview.redd.it" => capture(&REGEX_URL_PREVIEW, "/preview/pre/", 1),
+					domain if domain == format!("preview.{REDDIT_DOT_ONION}") => capture(&REGEX_URL_PREVIEW, "/preview/pre/", 1),
+					"external-preview.redd.it" => capture(&REGEX_URL_EXTERNAL_PREVIEW, "/preview/external-pre/", 1),
+					domain if domain == format!("external-preview.{REDDIT_DOT_ONION}") => capture(&REGEX_URL_EXTERNAL_PREVIEW, "/preview/external-pre/", 1),
+					"styles.redditmedia.com" => capture(&REGEX_URL_STYLES, "/style/", 1),
+					domain if domain == format!("styles.{REDDIT_MEDIA_ONION}") => capture(&REGEX_URL_STYLES, "/style/", 1),
+					"www.redditstatic.com" => capture(&REGEX_URL_STATIC_MEDIA, "/static/", 1),
+					"redditstatic.com" => capture(&REGEX_URL_STATIC_MEDIA, "/static/", 1),
+					REDDIT_STATIC_ONION => capture(&REGEX_URL_STATIC_MEDIA, "/static/", 1),
+					domain if domain == format!("www.{REDDIT_STATIC_ONION}") => capture(&REGEX_URL_STATIC_MEDIA, "/static/", 1),
+					_ => url_ref.to_string(),
+				};
+				formatted
 			}
-		})
+		}
 	}
 }
 
@@ -1084,17 +1129,27 @@ pub fn render_bullet_lists(input_text: &str) -> String {
 }
 
 // These are links we want to replace in-body
-static REDDIT_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"href="(https|http|)://(www\.|old\.|np\.|amp\.|new\.|)(reddit\.com|redd\.it)/"#).unwrap());
-static REDDIT_PREVIEW_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://(external-preview|preview|i)\.redd\.it(.*)").unwrap());
-static REDDIT_EMOJI_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://(www|).redditstatic\.com/(.*)").unwrap());
-static REDLIB_PREVIEW_LINK_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"/(img|preview/)(pre|external-pre)?/(.*?)>"#).unwrap());
-static REDLIB_PREVIEW_TEXT_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r">(.*?)</a>").unwrap());
+static REDDIT_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+	Regex::new(
+		r#"href="(?:https?:)?//(?:(?:www|old|np|amp|new)\.)?(?:reddit\.com|redd\.it|reddittorjg6rue252oqsxryoxengawnmo46qy4kyii5wtqnwfj4ooad\.onion|redditdotzhmh3mao6r5i2j7speppwqkizwo7vksy3mbz5iz7rlhocyd\.onion)/"#,
+	)
+	.unwrap()
+});
+static REDDIT_PREVIEW_URL_REGEX: LazyLock<Regex> =
+	LazyLock::new(|| Regex::new(r#"https?://(?:external-preview|preview|i)\.(?:redd\.it|redditdotzhmh3mao6r5i2j7speppwqkizwo7vksy3mbz5iz7rlhocyd\.onion)[^"'<\s]*"#).unwrap());
+static REDDIT_PREVIEW_ANCHOR_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+	Regex::new(r#"(?s)<p><a href="(https?://(?:external-preview|preview|i)\.(?:redd\.it|redditdotzhmh3mao6r5i2j7speppwqkizwo7vksy3mbz5iz7rlhocyd\.onion)[^"]*)">(.*?)</a></p>"#)
+		.unwrap()
+});
+static REDDIT_EMOJI_REGEX: LazyLock<Regex> =
+	LazyLock::new(|| Regex::new(r"https?://(?:www\.)?(?:redditstatic\.com|reddittic34i5gtjcnm2fb7fv2eyop4vbxquuc36prnbs7d2kp3saoqd\.onion)/(.*)").unwrap());
 
 /// Rewrite Reddit links to Redlib in body of text
 pub fn rewrite_urls(input_text: &str) -> String {
 	let mut text1 =
 		// Rewrite Reddit links to Redlib
 		REDDIT_REGEX.replace_all(input_text, r#"href="/"#).to_string();
+	text1 = reddit_urls::to_clearnet_url(&text1);
 
 	loop {
 		if REDDIT_EMOJI_REGEX.find(&text1).is_none() {
@@ -1109,53 +1164,28 @@ pub fn rewrite_urls(input_text: &str) -> String {
 	// Remove (html-encoded) "\" from URLs.
 	text1 = text1.replace("%5C", "").replace("\\_", "_");
 
-	// Rewrite external media previews to Redlib
-	loop {
-		if REDDIT_PREVIEW_REGEX.find(&text1).is_none() {
-			return text1;
-		} else {
-			let formatted_url = format_url(REDDIT_PREVIEW_REGEX.find(&text1).map(|x| x.as_str()).unwrap_or_default());
+	// Rewrite standalone Reddit media-preview links to inline figures.
+	text1 = REDDIT_PREVIEW_ANCHOR_REGEX
+		.replace_all(&text1, |caps: &regex::Captures| {
+			let original_url = caps.get(1).map_or("", |m| m.as_str());
+			let formatted_url = format_url(original_url);
+			let caption = caps.get(2).map_or("", |m| m.as_str());
 
-			let image_url = REDLIB_PREVIEW_LINK_REGEX.find(&formatted_url).map_or("", |m| m.as_str());
-			let mut image_caption = REDLIB_PREVIEW_TEXT_REGEX.find(&formatted_url).map_or("", |m| m.as_str());
-
-			/* As long as image_caption isn't empty remove first and last four characters of image_text to leave us with just the text in the caption without any HTML.
-			This makes it possible to enclose it in a <figcaption> later on without having stray HTML breaking it */
-			if !image_caption.is_empty() {
-				image_caption = &image_caption[1..image_caption.len() - 4];
-			}
-
-			// image_url contains > at the end of it, and right above this we remove image_text's front >, leaving us with just a single > between them
-			let image_to_replace = format!("<p><a href=\"{image_url}{image_caption}</a></p>");
-
-			/* We don't want to show a caption that's just the image's link, so we check if we find a Reddit preview link within the image's caption.
-			If we don't find one we must have actual text, so we include a <figcaption> block that contains it.
-			Otherwise we don't include the <figcaption> block as we don't need it. */
-			let _image_replacement = if REDDIT_PREVIEW_REGEX.find(image_caption).is_none() {
-				// Without this " would show as \" instead. "\&quot;" is how the quotes are formatted within image_text beforehand
-				format!(
-					"<figure><a href=\"{image_url}<img loading=\"lazy\" src=\"{image_url}</a><figcaption>{}</figcaption></figure>",
-					image_caption.replace("\\&quot;", "\"")
-				)
+			if caption.is_empty() || REDDIT_PREVIEW_URL_REGEX.is_match(caption) {
+				format!(r#"<figure><a href="{formatted_url}"><img loading="lazy" src="{formatted_url}"></a></figure>"#)
 			} else {
-				format!("<figure><a href=\"{image_url}<img loading=\"lazy\" src=\"{image_url}</a></figure>")
-			};
+				format!(
+					r#"<figure><a href="{formatted_url}"><img loading="lazy" src="{formatted_url}"></a><figcaption>{}</figcaption></figure>"#,
+					caption.replace("\\&quot;", "\"")
+				)
+			}
+		})
+		.to_string();
 
-			/* In order to know if we're dealing with a normal or external preview we need to take a look at the first capture group of REDDIT_PREVIEW_REGEX
-			if it's preview we're dealing with something that needs /preview/pre, external-preview is /preview/external-pre, and i is /img */
-			let reddit_preview_regex_capture = REDDIT_PREVIEW_REGEX.captures(&text1).unwrap().get(1).map_or("", |m| m.as_str());
-
-			let _preview_type = match reddit_preview_regex_capture {
-				"preview" => "/preview/pre",
-				"external-preview" => "/preview/external-pre",
-				_ => "/img",
-			};
-
-			text1 = REDDIT_PREVIEW_REGEX
-				.replace(&text1, format!("{_preview_type}$2"))
-				.replace(&image_to_replace, &_image_replacement)
-		}
-	}
+	// Rewrite remaining Reddit media-preview URLs without crossing HTML attribute boundaries.
+	REDDIT_PREVIEW_URL_REGEX
+		.replace_all(&text1, |caps: &regex::Captures| format_url(caps.get(0).map_or("", |m| m.as_str())))
+		.to_string()
 }
 
 // These links all follow a pattern of "https://reddit-econ-prod-assets-permanent.s3.amazonaws.com/asset-manager/SUBREDDIT_ID/RANDOM_FILENAME.png"
@@ -1490,26 +1520,56 @@ mod tests {
 	fn test_format_url() {
 		assert_eq!(format_url("https://a.thumbs.redditmedia.com/XYZ.jpg"), "/thumb/a/XYZ.jpg");
 		assert_eq!(format_url("https://emoji.redditmedia.com/a/b"), "/emoji/a/b");
+		assert_eq!(
+			format_url("https://a.thumbs.reddit4hkhcpcf2mkmuotdlk3gknuzcatsw4f7dx7twdkwmtrt6ax4qd.onion/XYZ.jpg"),
+			"/thumb/a/XYZ.jpg"
+		);
+		assert_eq!(format_url("https://emoji.reddit4hkhcpcf2mkmuotdlk3gknuzcatsw4f7dx7twdkwmtrt6ax4qd.onion/a/b"), "/emoji/a/b");
 
 		assert_eq!(
 			format_url("https://external-preview.redd.it/foo.jpg?auto=webp&s=bar"),
 			"/preview/external-pre/foo.jpg?auto=webp&s=bar"
 		);
+		assert_eq!(
+			format_url("https://external-preview.redditdotzhmh3mao6r5i2j7speppwqkizwo7vksy3mbz5iz7rlhocyd.onion/foo.jpg?auto=webp&s=bar"),
+			"/preview/external-pre/foo.jpg?auto=webp&s=bar"
+		);
 
 		assert_eq!(format_url("https://i.redd.it/foobar.jpg"), "/img/foobar.jpg");
+		assert_eq!(
+			format_url("https://i.redditdotzhmh3mao6r5i2j7speppwqkizwo7vksy3mbz5iz7rlhocyd.onion/foobar.jpg"),
+			"/img/foobar.jpg"
+		);
 		assert_eq!(
 			format_url("https://preview.redd.it/qwerty.jpg?auto=webp&s=asdf"),
 			"/preview/pre/qwerty.jpg?auto=webp&s=asdf"
 		);
-		assert_eq!(format_url("https://v.redd.it/foo/DASH_360.mp4?source=fallback"), "/vid/foo/360.mp4");
+		assert_eq!(format_url("https://v.redd.it/foo/DASH_360.mp4?source=fallback"), "/vid/foo/dash/360.mp4");
+		assert_eq!(format_url("https://v.redd.it/foo/CMAF_720.mp4?source=fallback"), "/vid/foo/cmaf/720.mp4");
+		assert_eq!(
+			format_url("https://v.redditdotzhmh3mao6r5i2j7speppwqkizwo7vksy3mbz5iz7rlhocyd.onion/foo/CMAF_720.mp4?source=fallback"),
+			"/vid/foo/cmaf/720.mp4"
+		);
 		assert_eq!(
 			format_url("https://v.redd.it/foo/HLSPlaylist.m3u8?a=bar&v=1&f=sd"),
 			"/hls/foo/HLSPlaylist.m3u8?a=bar&v=1&f=sd"
 		);
+		assert_eq!(
+			format_url("https://v.redditdotzhmh3mao6r5i2j7speppwqkizwo7vksy3mbz5iz7rlhocyd.onion/foo/HLSPlaylist.m3u8?a=bar&v=1&f=sd"),
+			"/hls/foo/HLSPlaylist.m3u8?a=bar&v=1&f=sd"
+		);
 		assert_eq!(format_url("https://www.redditstatic.com/gold/awards/icon/icon.png"), "/static/gold/awards/icon/icon.png");
+		assert_eq!(
+			format_url("https://www.reddittic34i5gtjcnm2fb7fv2eyop4vbxquuc36prnbs7d2kp3saoqd.onion/gold/awards/icon/icon.png"),
+			"/static/gold/awards/icon/icon.png"
+		);
 		assert_eq!(
 			format_url("https://www.redditstatic.com/marketplace-assets/v1/core/emotes/snoomoji_emotes/free_emotes_pack/shrug.gif"),
 			"/static/marketplace-assets/v1/core/emotes/snoomoji_emotes/free_emotes_pack/shrug.gif"
+		);
+		assert_eq!(
+			format_url("https://www.reddittorjg6rue252oqsxryoxengawnmo46qy4kyii5wtqnwfj4ooad.onion/r/rust/comments/abc"),
+			"/r/rust/comments/abc"
 		);
 
 		assert_eq!(format_url(""), "");
@@ -1587,6 +1647,17 @@ mod tests {
 		let input =
 			r#"<p><a href="https://preview.redd.it/6awags382xo31.png?width=2560&amp;format=png&amp;auto=webp&amp;s=9c563aed4f07a91bdd249b5a3cea43a79710dcfc">caption 1</a></p>"#;
 		let output = r#"<figure><a href="/preview/pre/6awags382xo31.png?width=2560&amp;format=png&amp;auto=webp&amp;s=9c563aed4f07a91bdd249b5a3cea43a79710dcfc"><img loading="lazy" src="/preview/pre/6awags382xo31.png?width=2560&amp;format=png&amp;auto=webp&amp;s=9c563aed4f07a91bdd249b5a3cea43a79710dcfc"></a><figcaption>caption 1</figcaption></figure>"#;
+		assert_eq!(rewrite_urls(input), output);
+	}
+
+	#[test]
+	fn rewrite_urls_rewrites_reddit_media_links_without_consuming_html() {
+		let input = r#"<div class="md"><p><a href="https://i.redd.it/foo.jpg">https://i.redd.it/foo.jpg</a></p></div><div class="post" id="next">next</div>"#;
+		let output = r#"<div class="md"><figure><a href="/img/foo.jpg"><img loading="lazy" src="/img/foo.jpg"></a></figure></div><div class="post" id="next">next</div>"#;
+		assert_eq!(rewrite_urls(input), output);
+
+		let input = r#"<p><a href="https://i.redd.it/foo.jpg">image</a></p><div class="post" id="next">next</div>"#;
+		let output = r#"<figure><a href="/img/foo.jpg"><img loading="lazy" src="/img/foo.jpg"></a><figcaption>image</figcaption></figure><div class="post" id="next">next</div>"#;
 		assert_eq!(rewrite_urls(input), output);
 	}
 
