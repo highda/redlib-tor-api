@@ -132,6 +132,9 @@ pub struct Config {
 	#[serde(alias = "LIBREDDIT_FINGERPRINT_SECRET")]
 	#[serde(skip_serializing)]
 	pub(crate) fingerprint_secret: Option<String>,
+
+	#[serde(rename = "REDLIB_SOURCE_URL")]
+	pub(crate) source_url: Option<String>,
 }
 
 impl Config {
@@ -186,6 +189,7 @@ impl Config {
 			fingerprint_score_threshold: parse("REDLIB_FINGERPRINT_SCORE_THRESHOLD"),
 			fingerprint_blocklist: parse("REDLIB_FINGERPRINT_BLOCKLIST"),
 			fingerprint_secret: parse("REDLIB_FINGERPRINT_SECRET"),
+			source_url: parse("REDLIB_SOURCE_URL"),
 		}
 	}
 }
@@ -222,6 +226,7 @@ fn get_setting_from_config(name: &str, config: &Config) -> Option<String> {
 		"REDLIB_FINGERPRINT_SCORE_THRESHOLD" => config.fingerprint_score_threshold.clone(),
 		"REDLIB_FINGERPRINT_BLOCKLIST" => config.fingerprint_blocklist.clone(),
 		"REDLIB_FINGERPRINT_SECRET" => config.fingerprint_secret.clone(),
+		"REDLIB_SOURCE_URL" => config.source_url.clone(),
 		_ => None,
 	}
 }
@@ -297,6 +302,12 @@ mod tests {
 	#[sealed_test(env = [("REDLIB_DEFAULT_FILTERS", "news+bestof")])]
 	fn test_default_filters() {
 		assert_eq!(get_setting("REDLIB_DEFAULT_FILTERS"), Some("news+bestof".into()));
+	}
+
+	#[test]
+	#[sealed_test(env = [("REDLIB_SOURCE_URL", "https://example.com")])]
+	fn test_source_url() {
+		assert_eq!(get_setting("REDLIB_SOURCE_URL"), Some("https://example.com".into()));
 	}
 
 	#[test]
