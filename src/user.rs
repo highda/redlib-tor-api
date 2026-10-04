@@ -2,7 +2,7 @@
 use crate::client::json;
 use crate::server::RequestExt;
 use crate::utils::{error, filter_posts, format_url, get_filters, nsfw_landing, param, setting, template, Post, Preferences, User};
-use crate::{config, utils};
+use crate::utils;
 use askama::Template;
 use chrono::DateTime;
 use htmlescape::decode_html;
@@ -133,7 +133,7 @@ async fn user(name: &str) -> Result<User, String> {
 }
 
 pub async fn rss(req: Request<Body>) -> Result<Response<Body>, String> {
-	if config::get_setting("REDLIB_ENABLE_RSS").is_none() {
+	if !crate::utils::enable_rss() {
 		return Ok(error(req, "RSS is disabled on this instance.").await.unwrap_or_default());
 	}
 	use crate::utils::rewrite_urls;
