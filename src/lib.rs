@@ -6,6 +6,7 @@ pub mod instance_info;
 pub mod oauth;
 pub mod oauth_resources;
 pub mod post;
+pub mod raw;
 pub mod reddit_urls;
 pub mod search;
 pub mod server;

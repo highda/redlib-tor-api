@@ -261,6 +261,8 @@ async fn main() {
 	app.at("/__aqua/yurification.js").get(|r| fingerprint::script(r).boxed());
 	app.at("/__aqua/axis_order").post(|r| fingerprint::verify(r).boxed());
 
+	app.at("/raw/*path").get(|r| redlib::raw::handler(r).boxed());
+
 	app.at("/commits.atom").get(|_| async move { proxy_commit_info().await }.boxed());
 	app.at("/instances.json").get(|_| async move { proxy_instances().await }.boxed());
 

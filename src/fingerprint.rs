@@ -107,7 +107,7 @@ pub fn is_exempt_path(path: &str) -> bool {
 	matches!(
 		path,
 		SCRIPT_PATH | VERIFY_PATH | "/favicon.ico" | "/robots.txt" | "/logo.png" | "/touch-icon-iphone.png" | "/apple-touch-icon.png"
-	)
+	) || path.starts_with("/raw/")
 }
 
 pub fn start_ua_version_refresh() {
