@@ -1,0 +1,29 @@
+{
+	admin off
+}
+
+{$SITE_ADDRESS::8080} {
+	# Redlib's /raw passthrough is for teddit-api only. Match any spelling
+	# Redlib would normalise to /raw (repeated slashes).
+	@raw path_regexp ^/+raw(/|$)
+	respond @raw "Not found" 404
+
+	# Teddit API: any request whose query has an `api` key, bare `?api` included.
+	@api expression `{http.request.uri.query}.matches("(^|&)api(=|&|$)")`
+	# Media URLs that teddit-api emits or that old Teddit clients still hold.
+	@media path /media/* /pics/* /vids/*
+	@teddit_proxy query teddit_proxy=*
+
+	handle @api {
+		reverse_proxy teddit-api:3000
+	}
+	handle @media {
+		reverse_proxy teddit-api:3000
+	}
+	handle @teddit_proxy {
+		reverse_proxy teddit-api:3000
+	}
+	handle {
+		reverse_proxy redlib:8080
+	}
+}

@@ -1,0 +1,17 @@
+# Offline overlay: replaces Redlib with a fixture-serving mock of its /raw
+# routes and drops Tor, so the stack runs without network access.
+#
+#   docker compose -f fork/deploy/compose.yaml -f fork/deploy/compose.test.yaml up -d --build
+#
+# Redlib's HTML routes are not available in this mode (the mock answers 404).
+
+services:
+  tor:
+    profiles: [disabled]
+
+  redlib:
+    build:
+      context: ../teddit-api
+      dockerfile: Dockerfile.mock
+    image: redlib-tor-api-mock:local
+    depends_on: !reset {}

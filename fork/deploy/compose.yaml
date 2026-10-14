@@ -1,0 +1,75 @@
+# redlib-tor-api stack: Caddy (public) → Redlib / teddit-api → Tor → Reddit.
+#
+#   cp fork/deploy/.env.example fork/deploy/.env   # set REDLIB_RAW_TOKEN etc.
+#   docker compose -f fork/deploy/compose.yaml up -d --build
+#
+# Only Caddy publishes a port. Redlib and teddit-api sit on an internal
+# network with no route out, so Redlib can only reach Reddit through Tor.
+
+name: redlib-tor-api
+
+services:
+  tor:
+    build: ./tor
+    image: redlib-tor-api-tor:local
+    restart: unless-stopped
+    networks: [backend, egress]
+
+  redlib:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: ${REDLIB_IMAGE:-redlib-tor-api:local}
+    restart: unless-stopped
+    depends_on:
+      tor:
+        condition: service_healthy
+        required: false
+    environment:
+      ALL_PROXY: ${TOR_SOCKS_URL:-socks5h://tor:9050}
+      REDLIB_USE_REDDIT_ONION: ${REDLIB_USE_REDDIT_ONION:-on}
+      REDLIB_RAW_TOKEN: ${REDLIB_RAW_TOKEN:?set REDLIB_RAW_TOKEN in fork/deploy/.env}
+      REDLIB_FINGERPRINTING: ${REDLIB_FINGERPRINTING:-off}
+      REDLIB_FINGERPRINT_SECRET: ${REDLIB_FINGERPRINT_SECRET:-}
+      REDLIB_FINGERPRINT_MAX_AGE_SECONDS: ${REDLIB_FINGERPRINT_MAX_AGE_SECONDS:-86400}
+      REDLIB_FINGERPRINT_SCORE_THRESHOLD: ${REDLIB_FINGERPRINT_SCORE_THRESHOLD:-50}
+      REDLIB_FINGERPRINT_BLOCKLIST: ${REDLIB_FINGERPRINT_BLOCKLIST:-}
+      REDLIB_ROBOTS_DISABLE_INDEXING: ${REDLIB_ROBOTS_DISABLE_INDEXING:-on}
+      REDLIB_DEFAULT_SHOW_NSFW: ${REDLIB_DEFAULT_SHOW_NSFW:-off}
+    networks: [backend]
+
+  teddit-api:
+    build: ../teddit-api
+    image: ${TEDDIT_API_IMAGE:-redlib-tor-api-teddit:local}
+    restart: unless-stopped
+    depends_on:
+      redlib:
+        condition: service_started
+    environment:
+      REDLIB_URL: http://redlib:8080
+      REDLIB_RAW_TOKEN: ${REDLIB_RAW_TOKEN:?set REDLIB_RAW_TOKEN in fork/deploy/.env}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      NSFW_ENABLED: ${TEDDIT_NSFW_ENABLED:-true}
+    networks: [backend]
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on: [redlib, teddit-api]
+    ports:
+      - "${PUBLIC_BIND:-127.0.0.1}:${PUBLIC_PORT:-8080}:8080"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:8080}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    networks: [backend, public]
+
+networks:
+  backend:
+    internal: true
+  egress: {}
+  public: {}
+
+volumes:
+  caddy-data: {}
