@@ -6,7 +6,10 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { TEST_DIR, runCases } from './helpers/spawn.js';
+
+const { rewriteMediaUrls } = createRequire(import.meta.url)('../src/media.cjs');
 
 const sha256 = (s) => createHash('sha256').update(s).digest('hex');
 const cases = JSON.parse(readFileSync(join(TEST_DIR, 'cases.json'), 'utf8'));
@@ -15,7 +18,9 @@ const results = runCases();
 const fixtureDir = join(TEST_DIR, 'fixtures');
 const fixtures = readdirSync(fixtureDir)
   .filter((f) => f !== 'index.json')
-  .map((f) => JSON.parse(readFileSync(join(fixtureDir, f), 'utf8')));
+  .map((f) => JSON.parse(readFileSync(join(fixtureDir, f), 'utf8')))
+  // target=reddit output is the fixture with media URLs pointed at /media/.
+  .map((j) => rewriteMediaUrls(j, 'https://teddit.example'));
 
 for (const c of cases) {
   test(`golden: ${c.name}`, () => {
@@ -34,7 +39,7 @@ for (const c of cases) {
   });
 }
 
-test('target=reddit returns the upstream JSON unchanged', () => {
+test('target=reddit returns the upstream JSON, media URLs proxied', () => {
   for (const c of cases.filter((c) => /[?&](target=reddit|raw=true)/.test(c.url) && !c.name.startsWith('error_'))) {
     const body = JSON.parse(results[c.name].body);
     // Teddit attaches suggested_subreddits to search results even in raw mode.
@@ -47,6 +52,18 @@ test('target=reddit returns the upstream JSON unchanged', () => {
       assert.ok(fixtures.some((f) => JSON.stringify(f) === JSON.stringify(body)), c.name);
     }
   }
+});
+
+test('target=reddit never points clients at Reddit media hosts', () => {
+  const media = /"https?:\/\/(i|v|preview|external-preview)\.redd\.it\/|"https?:\/\/[ab]\.thumbs\.redditmedia\.com\/|"https?:\/\/(styles|emoji)\.redditmedia\.com\//;
+  for (const c of cases.filter((c) => c.name.startsWith('stealth_'))) {
+    assert.doesNotMatch(results[c.name].body, media, c.name);
+  }
+  const post = JSON.parse(results.post_gallery_reddit.body)[0].data.children[0].data;
+  assert.equal(post.domain, 'reddit.com');
+  assert.match(post.url, /^https:\/\/www\.reddit\.com\/gallery\//);
+  const item = Object.values(post.media_metadata)[0];
+  assert.match(item.s.u, /^https:\/\/teddit\.example\/media\/preview\.redd\.it\//);
 });
 
 test('Stealth request shapes all succeed', () => {

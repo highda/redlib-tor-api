@@ -2,6 +2,7 @@
 
 import http from 'node:http';
 import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { createRedlibClient, UpstreamError } from './redlib.js';
@@ -9,7 +10,7 @@ import { handleApi, parseCookies } from './routes.js';
 
 const require = createRequire(import.meta.url);
 const { loadTeddit } = require('./teddit.cjs');
-const { legacyMediaRedirect } = require('./media.cjs');
+const { legacyMediaRedirect, mediaUpstreamPaths } = require('./media.cjs');
 
 const MEDIA_RESPONSE_HEADERS = [
   'content-type',
@@ -46,7 +47,21 @@ export function createApp({ redlib = createRedlibClient(), teddit, publicBaseUrl
     }
 
     if (url.pathname.startsWith('/media/')) {
-      const upstream = await redlib.media(url.pathname.slice('/media/'.length) + url.search, req.headers);
+      // Abort the upstream fetch if the client goes away mid-stream.
+      const gone = new AbortController();
+      res.on('close', () => gone.abort());
+      let upstream;
+      try {
+        const candidates = mediaUpstreamPaths(url.pathname.slice('/media/'.length));
+        for (const [i, path] of candidates.entries()) {
+          upstream = await redlib.media(path + url.search, req.headers, gone.signal);
+          if (upstream.ok || i === candidates.length - 1 || ![403, 404].includes(upstream.status)) break;
+          await upstream.body?.cancel().catch(() => {});
+        }
+      } catch (err) {
+        if (gone.signal.aborted) return res.destroy(); // client cancelled; nothing to report
+        throw err;
+      }
       const headers = {};
       for (const h of MEDIA_RESPONSE_HEADERS) {
         const v = upstream.headers.get(h);
@@ -55,8 +70,12 @@ export function createApp({ redlib = createRedlibClient(), teddit, publicBaseUrl
       // fetch() already decoded the body; the length no longer matches if it was compressed.
       if (upstream.headers.get('content-encoding')) delete headers['content-length'];
       res.writeHead(upstream.status, headers);
-      if (!upstream.body || req.method === 'HEAD') return res.end();
-      return Readable.fromWeb(upstream.body).pipe(res);
+      if (!upstream.body || req.method === 'HEAD') {
+        await upstream.body?.cancel().catch(() => {});
+        return res.end();
+      }
+      // A client disconnect or upstream reset ends the stream; nothing to report.
+      return pipeline(Readable.fromWeb(upstream.body), res).catch(() => res.destroy());
     }
 
     const legacy = legacyMediaRedirect(url.pathname, url.searchParams);

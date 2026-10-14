@@ -92,8 +92,23 @@ Teddit-era media URLs still work as redirects to `/media/`:
 `/pics/w:null_{file}` → `i.redd.it/{file}`, `/vids/{id}.mp4` → the HLS playlist,
 `/{file}?teddit_proxy={host}` → `{host}/{file}`.
 
-`target=reddit` output is Reddit's JSON with Reddit's own media URLs (clients such as
-Stealth then load media from Reddit directly, exactly as with Teddit).
+### Media in `target=reddit` output (extension)
+
+Teddit returned Reddit's JSON untouched, so clients such as Stealth loaded media straight
+from Reddit's CDNs. Here every Reddit media URL in that JSON (whole values such as
+`preview…url`, `media_metadata…u`, `reddit_video.fallback_url`, icons, flair emoji, and
+links inside `body_html` / `selftext_html` / `body`) is rewritten to
+`<PUBLIC_BASE_URL>/media/<host>/...`, so the client talks only to this instance.
+Untouched: the `domain` and `permalink` fields and links to other hosts (reddit.com,
+imgur, redgifs, streamable, youtube), which clients use for type detection and in-app
+link handling. Set `RAW_MEDIA_PROXY=off` for Teddit's original behaviour.
+
+Reddit's newer videos are `CMAF_<h>.mp4` with audio in `CMAF_AUDIO_<kbps>.mp4`. Clients
+built for the older `DASH_<h>` naming (Stealth derives `DASH_AUDIO_128` from the video
+URL) would play them silently, so CMAF video URLs are exposed as
+`/media/v.redd.it/<id>/cmaf/DASH_<h>.mp4`; `/media/` maps `cmaf/DASH_*` back to `CMAF_*`
+and falls back from `AUDIO_128` to `AUDIO_64`. A video without audio still answers 403,
+which Stealth treats as "play without sound".
 
 ## Errors
 
@@ -124,6 +139,7 @@ All errors are JSON `{ "error": "<message>", "status": <code> }` with that HTTP 
 | Redis cache (10 min listings). | Redlib's 30 s JSON cache. | One cache, upstream. |
 | `/r/random` | 404 JSON. | Reddit removed it. |
 | `raw` param does not exist. | `raw=true` = `target=reddit`. | Convenience alias. |
+| `target=reddit` media URLs point at Reddit's CDNs. | Point at `/media/` (unless `RAW_MEDIA_PROXY=off`); CMAF videos get a `cmaf/DASH_*` alias. | Full proxying; sound in DASH-only clients. |
 | `limit` ignored on listings. | Forwarded on front page, subreddit and search. | Harmless extension; Teddit's processors handle any length. |
 | Sets preference cookies when overrides are passed. | No cookies set. | Shares the domain with Redlib. |
 | Morechildren (`POST`), wiki, saved, subscriptions, gallery/poll pages. | Not provided. | Not part of Teddit's API. |

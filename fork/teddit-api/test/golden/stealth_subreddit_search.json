@@ -2,5 +2,5 @@
   "url": "/subreddits/search?api&nsfw=on&q=linux&target=reddit&raw_json=1",
   "status": 200,
   "contentType": "application/json",
-  "sha256": "44bf26b678588780728cc24de7becf0a5bb26d8ff8d9e7b0f3f687cf7a6861e7"
+  "sha256": "2023a2c8096907338d8f3064cc4d55f9ad9011968ca709a616b6422bd93e81ef"
 }

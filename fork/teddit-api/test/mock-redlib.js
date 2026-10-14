@@ -34,6 +34,20 @@ export function createMockRedlib({ fixturesDir = DEFAULT_FIXTURES, token = proce
       return res.end('Not found');
     }
     const path = url.pathname.slice('/raw'.length);
+    if (path === '/media/slow.test/video.mp4') {
+      // Trickles 10 chunks over ~1 s, to exercise long media streams.
+      res.writeHead(200, { 'content-type': 'video/mp4' });
+      let n = 0;
+      const t = setInterval(() => {
+        if (res.destroyed) return clearInterval(t);
+        res.write(Buffer.alloc(1024, n));
+        if (++n === 10) {
+          clearInterval(t);
+          res.end();
+        }
+      }, 100);
+      return;
+    }
     if (path.startsWith('/media/')) {
       res.writeHead(200, { 'content-type': 'image/png', 'content-length': PIXEL.length });
       return res.end(PIXEL);

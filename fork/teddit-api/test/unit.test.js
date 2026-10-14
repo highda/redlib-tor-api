@@ -7,7 +7,7 @@ import { parseCookies, userPreferences } from '../src/routes.js';
 import { createMockRedlib } from './mock-redlib.js';
 
 const require = createRequire(import.meta.url);
-const { mediaPath, createDownloadAndSave, deonionize, legacyMediaRedirect } = require('../src/media.cjs');
+const { mediaPath, createDownloadAndSave, deonionize, legacyMediaRedirect, rewriteMediaUrls, mediaUpstreamPaths } = require('../src/media.cjs');
 const { loadTeddit } = require('../src/teddit.cjs');
 
 const listen = (s) => new Promise((r) => s.listen(0, '127.0.0.1', () => r(s.address().port)));
@@ -56,6 +56,64 @@ test('legacy Teddit media URLs redirect to /media/', () => {
   assert.equal(legacyMediaRedirect('/abc.png', q('width=5&teddit_proxy=preview.redd.it')), '/media/preview.redd.it/abc.png?width=5');
   assert.equal(legacyMediaRedirect('/abc.png', q('teddit_proxy=evil.example')), null);
   assert.equal(legacyMediaRedirect('/r/rust', q('')), null);
+});
+
+test('rewriteMediaUrls proxies Reddit media URLs everywhere except domain/permalink', () => {
+  const B = 'https://inst.example';
+  const out = rewriteMediaUrls(
+    {
+      url: 'https://i.redd.it/a.jpg',
+      domain: 'i.redd.it',
+      permalink: '/r/x/comments/1/t/',
+      thumbnail: 'self',
+      preview: { images: [{ source: { url: 'https://preview.redd.it/p.jpg?width=1&amp;s=x' } }] },
+      media: { reddit_video: { fallback_url: 'https://v.redd.it/vid/DASH_720.mp4?source=fallback' } },
+      icon: 'https://styles.redditmedia.com/t5_x/styles/icon.png',
+      link: 'https://www.reddit.com/gallery/abc',
+      imgur: 'https://i.imgur.com/x.gifv',
+      selftext_html: '<a href="https://i.redd.it/a.jpg">x</a>',
+      note: 'see https://i.redd.it/a.jpg here',
+      list: ['https://external-preview.redd.it/e.png'],
+      lookalike: 'https://i.redd.it.evil.example/x.png',
+    },
+    B,
+  );
+  assert.equal(out.url, `${B}/media/i.redd.it/a.jpg`);
+  assert.equal(out.domain, 'i.redd.it');
+  assert.equal(out.permalink, '/r/x/comments/1/t/');
+  assert.equal(out.thumbnail, 'self');
+  assert.equal(out.preview.images[0].source.url, `${B}/media/preview.redd.it/p.jpg?width=1&amp;s=x`);
+  assert.equal(out.media.reddit_video.fallback_url, `${B}/media/v.redd.it/vid/DASH_720.mp4?source=fallback`);
+  assert.equal(out.icon, `${B}/media/styles.redditmedia.com/t5_x/styles/icon.png`);
+  assert.equal(out.link, 'https://www.reddit.com/gallery/abc');
+  assert.equal(out.imgur, 'https://i.imgur.com/x.gifv');
+  assert.equal(out.selftext_html, `<a href="${B}/media/i.redd.it/a.jpg">x</a>`);
+  assert.equal(out.note, `see ${B}/media/i.redd.it/a.jpg here`);
+  assert.deepEqual(out.list, [`${B}/media/external-preview.redd.it/e.png`]);
+  assert.equal(out.lookalike, 'https://i.redd.it.evil.example/x.png');
+});
+
+test('CMAF videos get a DASH-named alias so clients find the audio track', () => {
+  const B = 'https://inst.example';
+  const out = rewriteMediaUrls(
+    {
+      cmaf: 'https://v.redd.it/abc123/CMAF_720.mp4?source=fallback',
+      dash: 'https://v.redd.it/old456/DASH_480.mp4?source=fallback',
+      hls: 'https://v.redd.it/abc123/HLSPlaylist.m3u8?a=1',
+    },
+    B,
+  );
+  assert.equal(out.cmaf, `${B}/media/v.redd.it/abc123/cmaf/DASH_720.mp4?source=fallback`);
+  assert.equal(out.dash, `${B}/media/v.redd.it/old456/DASH_480.mp4?source=fallback`);
+  assert.equal(out.hls, `${B}/media/v.redd.it/abc123/HLSPlaylist.m3u8?a=1`);
+  // What Stealth derives (DASH_(\\d+) -> DASH_AUDIO_128) maps back to CMAF files.
+  assert.deepEqual(mediaUpstreamPaths('v.redd.it/abc123/cmaf/DASH_720.mp4'), ['v.redd.it/abc123/CMAF_720.mp4']);
+  assert.deepEqual(mediaUpstreamPaths('v.redd.it/abc123/cmaf/DASH_AUDIO_128.mp4'), [
+    'v.redd.it/abc123/CMAF_AUDIO_128.mp4',
+    'v.redd.it/abc123/CMAF_AUDIO_64.mp4',
+  ]);
+  assert.deepEqual(mediaUpstreamPaths('v.redd.it/old456/DASH_480.mp4'), ['v.redd.it/old456/DASH_480.mp4']);
+  assert.deepEqual(mediaUpstreamPaths('i.redd.it/x.jpg'), ['i.redd.it/x.jpg']);
 });
 
 test('cookies parse like cookie-parser', () => {
@@ -123,4 +181,31 @@ test('server: health, media, legacy redirects, non-API and errors', async (t) =>
 
   r = await fetch(`${base}/r/rust/wiki/index?api`);
   assert.equal(r.status, 404);
+});
+
+test('media streams outlive the header timeout and survive client disconnects', { timeout: 15000 }, async (t) => {
+  const mock = createMockRedlib({ token: 'tok' });
+  const mockUrl = `http://127.0.0.1:${await listen(mock)}`;
+  const teddit = loadTeddit(undefined, { publicBaseUrl: 'https://teddit.example' });
+  // 300 ms timeout, body takes ~1 s.
+  const app = createApp({ redlib: createRedlibClient({ baseUrl: mockUrl, token: 'tok', timeoutMs: 300 }), teddit, log: () => {} });
+  const base = `http://127.0.0.1:${await listen(app)}`;
+  t.after(() => {
+    app.close();
+    mock.close();
+  });
+
+  let r = await fetch(`${base}/media/slow.test/video.mp4`);
+  assert.equal(r.status, 200);
+  assert.equal((await r.arrayBuffer()).byteLength, 10 * 1024);
+
+  const ctrl = new AbortController();
+  r = await fetch(`${base}/media/slow.test/video.mp4`, { signal: ctrl.signal });
+  const reader = r.body.getReader();
+  await reader.read();
+  ctrl.abort();
+  await new Promise((done) => setTimeout(done, 1500));
+
+  r = await fetch(`${base}/healthz`);
+  assert.equal(r.status, 200, 'server still alive after a client disconnect mid-stream');
 });

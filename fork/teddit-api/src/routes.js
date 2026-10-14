@@ -3,7 +3,10 @@
 // the unmodified Teddit API handler builds the response. Deviations are
 // listed in API_SURFACE.md.
 
+import { createRequire } from 'node:module';
 import { UpstreamError } from './redlib.js';
+
+const { rewriteMediaUrls } = createRequire(import.meta.url)('./media.cjs');
 
 const LISTING_SORTS = ['new', 'rising', 'controversial', 'top', 'gilded', 'hot'];
 const PASTS = ['hour', 'day', 'week', 'month', 'year', 'all'];
@@ -115,6 +118,14 @@ export async function handleApi(url, cookies, { teddit, redlib }) {
   const segs = url.pathname.replace(/\/+$/, '').split('/').slice(1).map(decode);
   if (segs.length === 1 && segs[0] === '') segs.length = 0;
 
+  // target=reddit returns Reddit's JSON. Unless RAW_MEDIA_PROXY=off, its media URLs
+  // are pointed at /media/ so clients (e.g. Stealth) never contact Reddit's CDNs.
+  if (target === 'reddit' && type !== 'rss' && process.env.RAW_MEDIA_PROXY !== 'off') {
+    const { config } = teddit;
+    const base = `${config.https_enabled ? 'https' : 'http'}://${config.domain}`;
+    const upstream = redlib;
+    redlib = { ...upstream, json: async (...args) => rewriteMediaUrls(await upstream.json(...args), base) };
+  }
   const ctx = { query, req, res, type, target, raw_json, teddit, redlib };
   const [a, b, c, d, e, f] = segs;
   const n = segs.length;

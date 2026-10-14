@@ -50,6 +50,7 @@ services:
       REDLIB_RAW_TOKEN: ${REDLIB_RAW_TOKEN:?set REDLIB_RAW_TOKEN in fork/deploy/.env}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
       NSFW_ENABLED: ${TEDDIT_NSFW_ENABLED:-true}
+      RAW_MEDIA_PROXY: ${RAW_MEDIA_PROXY:-on}
     networks: [backend]
 
   caddy:

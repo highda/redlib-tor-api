@@ -90,4 +90,59 @@ function legacyMediaRedirect(pathname, searchParams) {
   return null;
 }
 
-module.exports = { PROXIED_HOSTS, mediaPath, createDownloadAndSave, deonionize, legacyMediaRedirect };
+const MEDIA_URL_IN_TEXT = new RegExp(
+  `https?://(${[...PROXIED_HOSTS].map((h) => h.replace(/\./g, '\\.')).join('|')})(?=[/?])`,
+  'gi',
+);
+
+/**
+ * Rewrites, in place, every Reddit media URL in Reddit's JSON (whole-string
+ * values and links inside HTML/markdown bodies alike) to `${base}/media/<host>/...`,
+ * keeping path, query and `&amp;` escapes byte for byte. `domain` and
+ * `permalink` are left alone, as are links to other hosts (reddit.com, imgur,
+ * redgifs, ...), so clients keep their domain-based media detection and in-app
+ * link handling.
+ */
+function rewriteMediaUrls(value, base) {
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) value[i] = rewriteMediaUrls(value[i], base);
+    return value;
+  }
+  if (value && typeof value === 'object') {
+    for (const k of Object.keys(value)) {
+      if (k === 'domain' || k === 'permalink') continue;
+      value[k] = rewriteMediaUrls(value[k], base);
+    }
+    return value;
+  }
+  if (typeof value === 'string' && value.includes('://')) {
+    return value
+      .replace(MEDIA_URL_IN_TEXT, (_, host) => `${base}/media/${host.toLowerCase()}`)
+      .replace(CMAF_VIDEO, '$1cmaf/DASH_$2.mp4');
+  }
+  return value;
+}
+
+// Reddit's newer videos are CMAF_<height>.mp4 with audio in CMAF_AUDIO_<kbps>.mp4.
+// Clients written for the older naming (Stealth) derive the audio URL by
+// replacing DASH_<n> with DASH_AUDIO_128, so CMAF videos play silently. Exposing
+// CMAF files under a cmaf/DASH_* alias lets them find the audio track;
+// mediaUpstreamPaths() maps the alias back.
+const CMAF_VIDEO = /(\/media\/v\.redd\.it\/[A-Za-z0-9]+\/)CMAF_(\d+)\.mp4/g;
+const CMAF_ALIAS = /^v\.redd\.it\/([A-Za-z0-9]+)\/cmaf\/DASH_(\d+|AUDIO_(\d+))\.mp4$/;
+
+/**
+ * Upstream paths to try, in order, for a /media/ path (without the prefix).
+ * Usually just the path itself; for the cmaf/ alias, the CMAF file, and for
+ * audio a lower bitrate as fallback.
+ */
+function mediaUpstreamPaths(path) {
+  const m = path.match(CMAF_ALIAS);
+  if (!m) return [path];
+  const [, id, name, kbps] = m;
+  const paths = [`v.redd.it/${id}/CMAF_${name}.mp4`];
+  if (kbps === '128') paths.push(`v.redd.it/${id}/CMAF_AUDIO_64.mp4`);
+  return paths;
+}
+
+module.exports = { PROXIED_HOSTS, mediaPath, createDownloadAndSave, deonionize, legacyMediaRedirect, rewriteMediaUrls, mediaUpstreamPaths };

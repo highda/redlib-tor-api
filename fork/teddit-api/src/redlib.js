@@ -73,13 +73,27 @@ export function createRedlibClient({
     return data;
   }
 
-  /** Streams /raw/media/{host}/{path}; returns the fetch Response. */
-  function media(pathAndQuery, reqHeaders = {}) {
+  /**
+   * Streams /raw/media/{host}/{path}; returns the fetch Response. The timeout
+   * covers only the wait for response headers: video bodies may stream for
+   * minutes. `signal` aborts the upstream request (e.g. client went away).
+   */
+  async function media(pathAndQuery, reqHeaders = {}, signal) {
     const fwd = { 'x-raw-token': token };
     for (const h of ['range', 'if-modified-since', 'if-none-match', 'cache-control']) {
       if (reqHeaders[h]) fwd[h] = reqHeaders[h];
     }
-    return fetch(`${baseUrl}/raw/media/${pathAndQuery}`, { headers: fwd, signal: AbortSignal.timeout(timeoutMs) });
+    const ctrl = new AbortController();
+    const onAbort = () => ctrl.abort(signal.reason);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    const timer = setTimeout(() => ctrl.abort(new UpstreamError(504, 'Redlib media timeout')), timeoutMs);
+    try {
+      return await fetch(`${baseUrl}/raw/media/${pathAndQuery}`, { headers: fwd, signal: ctrl.signal });
+    } catch (err) {
+      throw err instanceof UpstreamError ? err : new UpstreamError(502, `Redlib unreachable: ${err.cause?.code || err.name || err.message}`);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /** Redlib liveness (robots.txt is outside the fingerprint gate). */
