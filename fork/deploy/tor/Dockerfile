@@ -11,8 +11,11 @@ COPY torrc /etc/tor/torrc
 USER tor
 EXPOSE 9050
 
-# Healthy once Tor has a circuit and can reach the outside through SOCKS.
-HEALTHCHECK --interval=30s --timeout=20s --start-period=60s --retries=5 \
-	CMD curl -sf --max-time 15 --socks5-hostname 127.0.0.1:9050 https://check.torproject.org/api/ip | grep -q '"IsTor":true'
+# Healthy once Reddit is reachable through Tor. By default this is Reddit's
+# onion service: the check also keeps its rendezvous circuit warm (see torrc).
+# Set TOR_HEALTHCHECK_URL to a clearnet URL when REDLIB_USE_REDDIT_ONION=off.
+ENV TOR_HEALTHCHECK_URL=https://www.reddittorjg6rue252oqsxryoxengawnmo46qy4kyii5wtqnwfj4ooad.onion/robots.txt
+HEALTHCHECK --interval=30s --timeout=60s --start-period=180s --retries=5 \
+	CMD curl -sf -o /dev/null --max-time 55 --socks5-hostname 127.0.0.1:9050 "$TOR_HEALTHCHECK_URL"
 
 ENTRYPOINT ["tor", "-f", "/etc/tor/torrc"]
