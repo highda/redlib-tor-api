@@ -3,15 +3,20 @@
 # RSS), raw passthrough, pagination, media, error cases, the /raw block and
 # (unless --offline) Redlib's HTML.
 #
-#   fork/scripts/smoke.sh [--offline] <base_url>
+#   fork/scripts/smoke.sh [--offline|--gated] <base_url>
+#
+# --gated: Redlib runs with REDLIB_FINGERPRINTING=on, so its HTML must answer
+# curl with the gate's empty response while the API stays reachable.
 #
 # URLs match test/cases.json so the offline stack (fixture mock) can answer
 # them too. Prints a summary table; exits non-zero if anything failed.
 set -uo pipefail
 
 OFFLINE=0
+GATED=0
 if [[ "${1:-}" == "--offline" ]]; then OFFLINE=1; shift; fi
-BASE="${1:?usage: smoke.sh [--offline] <base_url>}"
+if [[ "${1:-}" == "--gated" ]]; then GATED=1; shift; fi
+BASE="${1:?usage: smoke.sh [--offline|--gated] <base_url>}"
 BASE="${BASE%/}"
 TIMEOUT="${SMOKE_TIMEOUT:-120}"
 command -v jq >/dev/null || { echo "jq is required" >&2; exit 2; }
@@ -23,8 +28,8 @@ FAIL=0
 ROWS=()
 
 # check NAME PATH STATUS CTYPE_REGEX [JQ_FILTER_OR_GREP]
-#   A filter starting with "grep:" is a grep -E pattern on the body; otherwise
-#   a jq expression that must print "true".
+#   A filter starting with "grep:" is a grep -E pattern on the body, "empty"
+#   requires an empty body; otherwise a jq expression that must print "true".
 check() {
   local name="$1" path="$2" want_status="$3" want_ctype="$4" filter="${5:-}"
   local out="$TMP/body" meta status ctype ms ok=1 why="" note=""
@@ -41,7 +46,9 @@ check() {
   if [[ "$status" != "$want_status" ]]; then ok=0; why="status $status"; fi
   if (( ok )) && [[ -n "$want_ctype" ]] && ! [[ "$ctype" =~ $want_ctype ]]; then ok=0; why="type '$ctype'"; fi
   if (( ok )) && [[ -n "$filter" ]]; then
-    if [[ "$filter" == grep:* ]]; then
+    if [[ "$filter" == empty ]]; then
+      [[ ! -s "$out" ]] || { ok=0; why="body not empty"; }
+    elif [[ "$filter" == grep:* ]]; then
       grep -Eq "${filter#grep:}" "$out" || { ok=0; why="body !~ ${filter#grep:}"; }
     else
       [[ "$(jq -r "$filter" "$out" 2>/dev/null)" == "true" ]] || { ok=0; why="jq: $filter"; }
@@ -116,7 +123,10 @@ check raw_blocked_slashes    '//raw/r/rust/hot.json'                 404 ''
 check raw_media_blocked      '/raw/media/i.redd.it/x.jpg'            404 ''
 
 # Redlib HTML (needs the real Redlib, so skipped offline)
-if (( ! OFFLINE )); then
+if (( GATED )); then
+  check redlib_html_gated    '/r/rust'                               200 '' empty
+  check redlib_media_gated   '/img/x.jpg'                            200 ''
+elif (( ! OFFLINE )); then
   check redlib_html          '/r/rust'                               200 '^text/html'
   check redlib_settings      '/settings'                             200 '^text/html'
 fi
