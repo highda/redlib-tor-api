@@ -2,8 +2,9 @@
 
 A maintained fork of [Redlib](https://github.com/redlib-org/redlib) that reaches Reddit
 through Tor and adds a [Teddit](https://codeberg.org/teddit/teddit)-compatible API, so
-apps that speak Teddit's API (for example the Android client
-[Stealth](https://gitlab.com/cosmosapps/stealth)) can use a Redlib instance.
+apps that speak Teddit's API (for example the Android clients
+[Stealth](https://gitlab.com/cosmosapps/stealth) and
+[Stealth-Continued](https://github.com/highda/stealth-continued)) can use a Redlib instance.
 
 It is three things on top of upstream Redlib:
 
@@ -143,8 +144,28 @@ Reddit's newer CMAF videos a name Stealth recognises, so they play with sound. L
 other sites (imgur, redgifs, YouTube, …) are loaded by Stealth itself. Set
 `RAW_MEDIA_PROXY=off` for Teddit's original behaviour.
 
-Stealth has no Teddit endpoint for searching all posts or users; that is Stealth, not
-the instance.
+Stealth 2.3.1 sends post search, user search and "load more comments" to reddit.com even
+in Teddit mode: that is Stealth, not the instance.
+
+### Stealth-Continued
+
+[Stealth-Continued](https://github.com/highda/stealth-continued) is a fork of Stealth made
+for this API. It talks only to the instance (post search, user lookup and "load more
+comments" included), takes any address (`https://host:port`, or plain HTTP on a trusted
+network), supports HTTP Basic authentication in front of the instance, and works around
+the limitations below.
+
+## Known limitations
+
+- `/r/a+b` (several subreddits at once) answers with r/popular: `/raw` passes the `+` to
+  Reddit unencoded, and Reddit reads it as a space. Stealth-Continued uses a search
+  restricted to those subreddits instead.
+- `/raw` does not forward `/api/morechildren`, so "load more comments" has to fetch comment
+  permalinks; there is no user search route.
+- Reddit's media onion (i/v/preview.redd.it) can stop answering while the API onion keeps
+  working: listings load, every image times out. The examples' Tor healthcheck reports it
+  as unhealthy and a Tor restart fixes it; Docker does not restart unhealthy containers by
+  itself, so pair it with a watchdog.
 
 ## API
 

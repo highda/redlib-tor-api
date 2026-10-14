@@ -1,3 +1,5 @@
+> **This is [redlib-tor-api](fork/README.md)**, a fork of Redlib that reaches Reddit through Tor and adds a Teddit-compatible API. Everything about the fork (deployment, the API, configuration) is in **[fork/README.md](fork/README.md)**. What follows is the original Redlib README.
+
 # Redlib
 
 > An alternative private front-end to Reddit, with its origins in [Libreddit](https://github.com/libreddit/libreddit).

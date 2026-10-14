@@ -28,9 +28,11 @@ services:
       - --Log
       - notice stdout
     # Healthy once Reddit's onion answers. This also keeps the onion circuit warm,
-    # which Redlib needs at startup (its OAuth bootstrap gives up after 5 s).
+    # which Redlib needs at startup (its OAuth bootstrap gives up after 5 s). The second
+    # check is the media onion (i/v/preview.redd.it): any HTTP answer will do, "000" means
+    # none. It can die while the API onion works; restarting Tor fixes it.
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf -o /dev/null --max-time 55 --socks5-hostname 127.0.0.1:9050 https://www.reddittorjg6rue252oqsxryoxengawnmo46qy4kyii5wtqnwfj4ooad.onion/robots.txt"]
+      test: ["CMD-SHELL", "curl -sf -o /dev/null --max-time 28 --socks5-hostname 127.0.0.1:9050 https://www.reddittorjg6rue252oqsxryoxengawnmo46qy4kyii5wtqnwfj4ooad.onion/robots.txt && c=$$(curl -s -o /dev/null -w '%{http_code}' --max-time 28 --socks5-hostname 127.0.0.1:9050 https://i.redditdotzhmh3mao6r5i2j7speppwqkizwo7vksy3mbz5iz7rlhocyd.onion/) && [ \"$$c\" != 000 ]"]
       interval: 30s
       timeout: 60s
       start_period: 180s

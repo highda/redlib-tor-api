@@ -28,7 +28,9 @@ services:
       - --Log
       - notice stdout
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf -o /dev/null --max-time 55 --socks5-hostname 127.0.0.1:9050 $${TOR_HEALTHCHECK_URL}"]
+      # Also checks that the media onion (i/v/preview.redd.it) answers at all ("000" = no
+      # answer): it can die while the API onion keeps working, and then every image fails.
+      test: ["CMD-SHELL", "curl -sf -o /dev/null --max-time 28 --socks5-hostname 127.0.0.1:9050 $${TOR_HEALTHCHECK_URL} && c=$$(curl -s -o /dev/null -w '%{http_code}' --max-time 28 --socks5-hostname 127.0.0.1:9050 $${TOR_MEDIA_HEALTHCHECK_URL}) && [ \"$$c\" != 000 ]"]
       interval: 30s
       timeout: 60s
       start_period: 180s
@@ -36,6 +38,7 @@ services:
     environment:
       # Use a clearnet URL here when REDLIB_USE_REDDIT_ONION=off.
       TOR_HEALTHCHECK_URL: ${TOR_HEALTHCHECK_URL:-https://www.reddittorjg6rue252oqsxryoxengawnmo46qy4kyii5wtqnwfj4ooad.onion/robots.txt}
+      TOR_MEDIA_HEALTHCHECK_URL: ${TOR_MEDIA_HEALTHCHECK_URL:-https://i.redditdotzhmh3mao6r5i2j7speppwqkizwo7vksy3mbz5iz7rlhocyd.onion/}
     networks: [backend, egress]
 
   redlib:
