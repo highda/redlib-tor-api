@@ -1,0 +1,6 @@
+{
+  "url": "/r/rust/top?api&t=week&target=reddit&raw_json=1",
+  "status": 200,
+  "contentType": "application/json",
+  "sha256": "c82b1d573b11f65380238eb7933b2cd3b15c9fe96297e0d287d91925ac28e913"
+}

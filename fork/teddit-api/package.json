@@ -1,0 +1,14 @@
+{
+  "name": "redlib-tor-api-teddit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Teddit-compatible API sidecar for Redlib (redlib-tor-api)",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "main": "src/server.js",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test \"test/*.test.js\""
+  }
+}

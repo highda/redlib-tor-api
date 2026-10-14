@@ -1,0 +1,6 @@
+{
+  "url": "/r/rust/search?api&restrict_sr=on&nsfw=on&q=async&sort=relevance&target=reddit&raw_json=1",
+  "status": 200,
+  "contentType": "application/json",
+  "sha256": "1a7d09763c0d3d9240f2c6f5b90568ba7ecf1f5b81dda67f7881f711a2678ae5"
+}

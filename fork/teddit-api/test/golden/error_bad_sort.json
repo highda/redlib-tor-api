@@ -1,0 +1,9 @@
+{
+  "url": "/r/rust/sideways?api",
+  "status": 400,
+  "contentType": "application/json",
+  "body": {
+    "error": "Invalid sort",
+    "status": 400
+  }
+}

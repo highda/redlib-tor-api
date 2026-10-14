@@ -1,0 +1,9 @@
+{
+  "url": "/r/thissubdoesnotexist12345xyz?api",
+  "status": 404,
+  "contentType": "application/json",
+  "body": {
+    "error": "Reddit error 404 \"null\": \"Not Found\" | /r/thissubdoesnotexist12345xyz/hot.json?count=25&raw_json=0",
+    "status": 404
+  }
+}

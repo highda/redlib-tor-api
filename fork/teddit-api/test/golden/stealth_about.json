@@ -1,0 +1,6 @@
+{
+  "url": "/r/rust/about?api&target=reddit&raw_json=1",
+  "status": 200,
+  "contentType": "application/json",
+  "sha256": "74e01d550d4badce57c5f4021863750bef906294b2a41a1cfcfeb7d9e4b26af9"
+}

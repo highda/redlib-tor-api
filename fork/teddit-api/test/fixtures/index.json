@@ -1,0 +1,134 @@
+{
+  "/comments/1x5fyx1.json?raw_json=0&sort=confidence": {
+    "file": "comments_1x5fyx1_json-1b5eaf16b6.json",
+    "status": 200
+  },
+  "/hot.json?raw_json=0": {
+    "file": "hot_json-8d601ef528.json",
+    "status": 200
+  },
+  "/r/AskReddit/comments/1x3uinu/what_previously_glorified_careers_are_struggling.json?raw_json=0&sort=confidence": {
+    "file": "r_AskReddit_comments_1x3uinu_what_previously_glorified_caree-4008b4e06d.json",
+    "status": 200
+  },
+  "/r/AskReddit/comments/1x3uinu/what_previously_glorified_careers_are_struggling.json?raw_json=1&sort=confidence": {
+    "file": "r_AskReddit_comments_1x3uinu_what_previously_glorified_caree-6bc3a8c2e4.json",
+    "status": 200
+  },
+  "/r/AskRedditAfterDark/hot.json?count=25&limit=5&raw_json=0": {
+    "file": "r_AskRedditAfterDark_hot_json-8e03a804ca.json",
+    "status": 200
+  },
+  "/r/MechanicalKeyboards/comments/1x5fyx1/the_most_beautiful_keyboard_ever.json?raw_json=0&sort=confidence": {
+    "file": "r_MechanicalKeyboards_comments_1x5fyx1_the_most_beautiful_ke-1acc3fa976.json",
+    "status": 200
+  },
+  "/r/all/search.json?include_over_18=off&q=rust&raw_json=0&restrict_sr=off": {
+    "file": "r_all_search_json-b22060df8d.json",
+    "status": 200
+  },
+  "/r/aww/comments/1x5ihbp/these_grasshoppers_are_sure_evolving_at_an.json?raw_json=0&sort=confidence": {
+    "file": "r_aww_comments_1x5ihbp_these_grasshoppers_are_sure_evolving_-fdd9f9d173.json",
+    "status": 200
+  },
+  "/r/pics/hot.json?after=t3_1x5ha7a&count=25&raw_json=0": {
+    "file": "r_pics_hot_json-549209563b.json",
+    "status": 200
+  },
+  "/r/pics/hot.json?count=25&raw_json=0": {
+    "file": "r_pics_hot_json-774b21857e.json",
+    "status": 200
+  },
+  "/r/rust+linux/new.json?count=25&raw_json=1": {
+    "file": "r_rust_linux_new_json-a1e98f8244.json",
+    "status": 200
+  },
+  "/r/rust/about.json?raw_json=0": {
+    "file": "r_rust_about_json-7498e43900.json",
+    "status": 200
+  },
+  "/r/rust/about.json?raw_json=1": {
+    "file": "r_rust_about_json-74dc66d5d8.json",
+    "status": 200
+  },
+  "/r/rust/hot.json?after=t3_1x5411h&count=25&raw_json=1": {
+    "file": "r_rust_hot_json-c97db1cec0.json",
+    "status": 200
+  },
+  "/r/rust/hot.json?count=25&raw_json=1": {
+    "file": "r_rust_hot_json-d26b7a0b22.json",
+    "status": 200
+  },
+  "/r/rust/new.json?count=25&raw_json=0": {
+    "file": "r_rust_new_json-a27bbfce5a.json",
+    "status": 200
+  },
+  "/r/rust/new.json?count=25&raw_json=1": {
+    "file": "r_rust_new_json-7bd7de5925.json",
+    "status": 200
+  },
+  "/r/rust/search.json?include_over_18=off&q=async&raw_json=0&restrict_sr=on": {
+    "file": "r_rust_search_json-e1e3060281.json",
+    "status": 200
+  },
+  "/r/rust/search.json?include_over_18=on&q=async&raw_json=1&restrict_sr=on&sort=relevance": {
+    "file": "r_rust_search_json-b3ecbda4e6.json",
+    "status": 200
+  },
+  "/r/rust/top.json?count=25&raw_json=1&t=week": {
+    "file": "r_rust_top_json-88e67bda4b.json",
+    "status": 200
+  },
+  "/r/thissubdoesnotexist12345xyz/hot.json?count=25&raw_json=0": {
+    "file": "r_thissubdoesnotexist12345xyz_hot_json-50340a7332.json",
+    "status": 404
+  },
+  "/r/videos/comments/1x5f2i0/jon_ossoff_confronts_rep_mike_collins_you_want_to.json?raw_json=0&sort=confidence": {
+    "file": "r_videos_comments_1x5f2i0_jon_ossoff_confronts_rep_mike_coll-f866585181.json",
+    "status": 200
+  },
+  "/subreddits/search.json?include_over_18=off&limit=3&q=rust": {
+    "file": "subreddits_search_json-b13a022068.json",
+    "status": 200
+  },
+  "/subreddits/search.json?include_over_18=off&q=linux&raw_json=0": {
+    "file": "subreddits_search_json-742d3535f9.json",
+    "status": 200
+  },
+  "/subreddits/search.json?include_over_18=on&q=linux&raw_json=1": {
+    "file": "subreddits_search_json-d7c3e954ce.json",
+    "status": 200
+  },
+  "/top.json?raw_json=0&t=week": {
+    "file": "top_json-e7128d20fc.json",
+    "status": 200
+  },
+  "/user/spez/about.json?raw_json=0": {
+    "file": "user_spez_about_json-8cf0c25929.json",
+    "status": 200
+  },
+  "/user/spez/about.json?raw_json=1": {
+    "file": "user_spez_about_json-0bb41298b9.json",
+    "status": 200
+  },
+  "/user/spez/comments.json?limit=26&raw_json=0&sort=new": {
+    "file": "user_spez_comments_json-4117fdbf12.json",
+    "status": 200
+  },
+  "/user/spez/comments.json?limit=26&raw_json=1&sort=new": {
+    "file": "user_spez_comments_json-5f8d36294b.json",
+    "status": 200
+  },
+  "/user/spez/overview.json?limit=26&raw_json=0&sort=new": {
+    "file": "user_spez_overview_json-c412e7a35a.json",
+    "status": 200
+  },
+  "/user/spez/submitted.json?limit=26&raw_json=0&sort=new": {
+    "file": "user_spez_submitted_json-cffd0c1265.json",
+    "status": 200
+  },
+  "/user/spez/submitted.json?limit=26&raw_json=1&sort=hot": {
+    "file": "user_spez_submitted_json-ef24005076.json",
+    "status": 200
+  }
+}

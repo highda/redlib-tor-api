@@ -1,0 +1,10 @@
+# Offline stand-in for Redlib's /raw passthrough (fork/deploy/compose.test.yaml).
+FROM node:22-alpine
+WORKDIR /app
+COPY package.json ./
+COPY src ./src
+COPY test/mock-redlib.js ./test/mock-redlib.js
+COPY test/fixtures ./test/fixtures
+USER node
+EXPOSE 8080
+CMD ["node", "test/mock-redlib.js", "8080"]

@@ -1,0 +1,6 @@
+{
+  "url": "/subreddits/search?api&nsfw=on&q=linux&target=reddit&raw_json=1",
+  "status": 200,
+  "contentType": "application/json",
+  "sha256": "44bf26b678588780728cc24de7becf0a5bb26d8ff8d9e7b0f3f687cf7a6861e7"
+}

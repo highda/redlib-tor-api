@@ -1,0 +1,9 @@
+{
+  "url": "/r/rust/top?api&t=decade",
+  "status": 400,
+  "contentType": "application/json",
+  "body": {
+    "error": "Invalid t",
+    "status": 400
+  }
+}

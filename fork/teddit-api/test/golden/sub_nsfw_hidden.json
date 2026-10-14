@@ -1,0 +1,12 @@
+{
+  "url": "/r/AskRedditAfterDark?api&limit=5&nsfw_enabled=false",
+  "status": 200,
+  "contentType": "application/json",
+  "body": {
+    "info": {
+      "before": "t3_1qn5krw",
+      "after": "t3_1x553rv"
+    },
+    "links": []
+  }
+}
