@@ -1,0 +1,74 @@
+# redlib-tor-api on a server, from published images, behind your own reverse proxy.
+#
+#   Your proxy ──▶ redlib:8080       web UI (everything else)
+#              └─▶ teddit-api:3000   Teddit API: requests whose query has an `api` key,
+#                                    plus /media/ (and /pics/, /vids/ for old Teddit links)
+#   redlib ──▶ tor ──▶ Reddit (onion)
+#
+# Route the two however you like: one hostname split by query/path, or two hostnames.
+# Never expose redlib's /raw (teddit-api uses it; it needs REDLIB_RAW_TOKEN anyway).
+# See fork/README.md for proxy examples and what protecting the endpoint involves.
+#
+# redlib and teddit-api are only on the internal network `redlib-tor-api`, so they
+# cannot reach the internet except through tor (fail-closed). Connect your reverse
+# proxy container to that network:  docker network connect redlib-tor-api <proxy>
+#
+#   REDLIB_RAW_TOKEN=$(openssl rand -hex 32)   # in .env next to this file, never in git
+
+services:
+  tor:
+    image: osminogin/tor-simple:latest@sha256:ea335859425375b3294b15a5df61ca317ca4fdd143cf7a8d568bb2cd48217774
+    restart: unless-stopped
+    command:
+      - tor
+      - --SocksPort
+      - 0.0.0.0:9050 NoIsolateClientAddr
+      - --SocksPolicy
+      - accept 127.0.0.0/8,accept 10.0.0.0/8,accept 172.16.0.0/12,accept 192.168.0.0/16,reject *
+      - --Log
+      - notice stdout
+    # Healthy once Reddit's onion answers. This also keeps the onion circuit warm,
+    # which Redlib needs at startup (its OAuth bootstrap gives up after 5 s).
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf -o /dev/null --max-time 55 --socks5-hostname 127.0.0.1:9050 https://www.reddittorjg6rue252oqsxryoxengawnmo46qy4kyii5wtqnwfj4ooad.onion/robots.txt"]
+      interval: 30s
+      timeout: 60s
+      start_period: 180s
+      retries: 5
+    networks: [backend, egress]
+
+  redlib:
+    image: ghcr.io/highda/redlib-tor-api:${REDLIB_TOR_API_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      tor:
+        condition: service_healthy
+    environment:
+      ALL_PROXY: socks5h://tor:9050
+      REDLIB_USE_REDDIT_ONION: "on"
+      REDLIB_RAW_TOKEN: ${REDLIB_RAW_TOKEN:?set REDLIB_RAW_TOKEN}
+      REDLIB_ROBOTS_DISABLE_INDEXING: "on"
+      # AGPL source offer for your users (Redlib's footer links to upstream Redlib):
+      REDLIB_BANNER: "Source: https://github.com/highda/redlib-tor-api"
+      # Optional browser gate for the web UI (never applies to the API or /media/):
+      # REDLIB_FINGERPRINTING: "on"
+      # REDLIB_FINGERPRINT_SECRET: ${REDLIB_FINGERPRINT_SECRET}
+      # Any other REDLIB_* setting from upstream's README works as usual.
+    networks: [backend]
+
+  teddit-api:
+    image: ghcr.io/highda/redlib-tor-api-teddit:${REDLIB_TOR_API_TAG:-latest}
+    restart: unless-stopped
+    depends_on: [redlib]
+    environment:
+      REDLIB_URL: http://redlib:8080
+      REDLIB_RAW_TOKEN: ${REDLIB_RAW_TOKEN:?set REDLIB_RAW_TOKEN}
+      PUBLIC_BASE_URL: https://reddit.example.org   # the public origin clients use
+      RAW_MEDIA_PROXY: "on"                         # media via /media/, never Reddit's CDNs
+    networks: [backend]
+
+networks:
+  backend:
+    name: redlib-tor-api
+    internal: true    # no route out; your reverse proxy joins this network
+  egress: {}          # tor's way out

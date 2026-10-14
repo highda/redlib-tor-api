@@ -5,7 +5,8 @@
 #   ghcr.io/<owner>/redlib-tor-api-teddit  Teddit API sidecar (fork/teddit-api)
 #
 # Each platform builds on its own native runner (no QEMU), pushes by digest,
-# and a final job joins the digests into one multi-arch tag.
+# and a final job joins the digests into one multi-arch tag. A full release also
+# moves "latest"; a pre-release does not.
 name: redlib-tor-api release
 
 on:
@@ -66,13 +67,15 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
           INPUT_TAG: ${{ inputs.tag }}
           INPUT_ARM64: ${{ inputs.arm64 }}
           OWNER: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
           if [[ "$EVENT" == "release" ]]; then
-            tag="$RELEASE_TAG"; latest=true
+            # A pre-release gets its own tag only; "latest" moves on full releases.
+            tag="$RELEASE_TAG"; latest=$([[ "$PRERELEASE" == "true" ]] && echo false || echo true)
           else
             tag="${INPUT_TAG:-sha-${GITHUB_SHA::7}}"; latest=false
           fi

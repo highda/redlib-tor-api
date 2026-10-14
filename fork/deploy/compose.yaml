@@ -1,4 +1,6 @@
-# redlib-tor-api stack: Caddy (public) → Redlib / teddit-api → Tor → Reddit.
+# redlib-tor-api, built from this checkout: Caddy (public) → Redlib / teddit-api → Tor → Reddit.
+# Used for local development and by fork/scripts/check.sh. For a server, start from
+# fork/deploy/compose.example.yaml (published images, your own reverse proxy).
 #
 #   cp fork/deploy/.env.example fork/deploy/.env   # set REDLIB_RAW_TOKEN etc.
 #   docker compose -f fork/deploy/compose.yaml up -d --build
@@ -9,10 +11,31 @@
 name: redlib-tor-api
 
 services:
+  # Any Tor SOCKS proxy works (point TOR_SOCKS_URL at it and start with --scale tor=0).
+  # Two settings matter for onion mode: the SocksPort shares circuits across client
+  # addresses, and the healthcheck fetches Reddit's onion. Together they keep the
+  # onion circuit warm, so Redlib (whose OAuth bootstrap gives up after 5 s, less than
+  # a cold onion connect) only starts once Reddit is reachable.
   tor:
-    build: ./tor
-    image: redlib-tor-api-tor:local
+    image: osminogin/tor-simple:latest@sha256:ea335859425375b3294b15a5df61ca317ca4fdd143cf7a8d568bb2cd48217774
     restart: unless-stopped
+    command:
+      - tor
+      - --SocksPort
+      - 0.0.0.0:9050 NoIsolateClientAddr
+      - --SocksPolicy
+      - accept 127.0.0.0/8,accept 10.0.0.0/8,accept 172.16.0.0/12,accept 192.168.0.0/16,reject *
+      - --Log
+      - notice stdout
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf -o /dev/null --max-time 55 --socks5-hostname 127.0.0.1:9050 $${TOR_HEALTHCHECK_URL}"]
+      interval: 30s
+      timeout: 60s
+      start_period: 180s
+      retries: 5
+    environment:
+      # Use a clearnet URL here when REDLIB_USE_REDDIT_ONION=off.
+      TOR_HEALTHCHECK_URL: ${TOR_HEALTHCHECK_URL:-https://www.reddittorjg6rue252oqsxryoxengawnmo46qy4kyii5wtqnwfj4ooad.onion/robots.txt}
     networks: [backend, egress]
 
   redlib:
