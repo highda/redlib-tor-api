@@ -199,6 +199,8 @@ fn build_comment(
 
 	let parent_kind_and_id = val(comment, "parent_id");
 	let parent_info = parent_kind_and_id.split('_').collect::<Vec<&str>>();
+	let parent_kind = parent_info.first().copied().unwrap_or_default().to_string();
+	let parent_id = parent_info.get(1).copied().unwrap_or_default().to_string();
 
 	let highlighted = id == highlighted_comment;
 
@@ -229,8 +231,8 @@ fn build_comment(
 	Comment {
 		id,
 		kind,
-		parent_id: parent_info[1].to_string(),
-		parent_kind: parent_info[0].to_string(),
+		parent_id,
+		parent_kind,
 		post_link: post_link.to_string(),
 		post_author: post_author.to_string(),
 		body,
