@@ -11,7 +11,7 @@ use hyper::{header::HeaderValue, Body, Request, Response};
 use log::{info, warn};
 use redlib::client::{canonical_path, init_oauth_client, proxy, CLIENT};
 use redlib::server::{self, RequestExt};
-use redlib::utils::{error, redirect, ThemeAssets};
+use redlib::utils::{error, get_source_url, redirect, ThemeAssets};
 use redlib::{config, duplicates, fingerprint, headers, instance_info, post, search, settings, subreddit, user};
 
 
@@ -448,7 +448,7 @@ pub async fn proxy_commit_info() -> Result<Response<Body>, String> {
 
 #[cached(time = 600, result = true, result_fallback = true)]
 async fn fetch_commit_info() -> Result<String, String> {
-	fetch_text("https://github.com/redlib-org/redlib/commits/main.atom").await
+	fetch_text(&format!("{}/commits/main.atom", get_source_url().trim_end_matches('/'))).await
 }
 
 pub async fn proxy_instances() -> Result<Response<Body>, String> {
