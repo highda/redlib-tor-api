@@ -257,6 +257,9 @@ async fn main() {
 		.at("/check_update.js")
 		.get(|_| resource(include_str!("../static/check_update.js"), "text/javascript", false).boxed());
 	app.at("/copy.js").get(|_| resource(include_str!("../static/copy.js"), "text/javascript", false).boxed());
+	app
+		.at("/loadMoreComments.js")
+		.get(|_| resource(include_str!("../static/loadMoreComments.js"), "text/javascript", false).boxed());
 	app.at("/__aqua/yurification.js").get(|r| fingerprint::script(r).boxed());
 	app.at("/__aqua/axis_order").post(|r| fingerprint::verify(r).boxed());
 
