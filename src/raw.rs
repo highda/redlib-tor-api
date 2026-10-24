@@ -11,7 +11,7 @@
 
 use crate::client::{json, proxy};
 use hyper::{Body, Request, Response};
-use serde_json::json as json_value;
+use serde_json::{json as json_value, Value};
 use std::sync::LazyLock;
 
 static RAW_TOKEN: LazyLock<Option<String>> = LazyLock::new(|| std::env::var("REDLIB_RAW_TOKEN").ok().filter(|t| !t.is_empty()));
@@ -68,13 +68,33 @@ pub async fn handler(req: Request<Body>) -> Result<Response<Body>, String> {
 	let query = filter_query(req.uri().query().unwrap_or_default());
 	let target = if query.is_empty() { reddit_path } else { format!("{reddit_path}?{query}") };
 
-	Ok(match json(target, true).await {
+	// Reddit blocks the comments JSON for anonymous clients, so threads come
+	// from GraphQL in the same two-Listing shape. That builds raw strings; give
+	// clients that did not ask for raw_json=1 Reddit's legacy escaping back.
+	let result = if crate::gql::parse_path(&target).is_some() {
+		let raw = query.split('&').any(|pair| pair == "raw_json=1");
+		crate::gql::thread(target, true).await.map(|value| if raw { value } else { legacy_escape(value) })
+	} else {
+		json(target, true).await
+	};
+
+	Ok(match result {
 		Ok(value) => json_response(200, &value),
 		Err(msg) => {
 			let status = error_status(&msg);
 			json_response(status, &json_value!({ "error": msg, "status": status }))
 		}
 	})
+}
+
+/// Reddit's JSON without raw_json=1 escapes `&`, `<` and `>` in every string.
+fn legacy_escape(value: Value) -> Value {
+	match value {
+		Value::String(s) => Value::String(s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")),
+		Value::Array(items) => Value::Array(items.into_iter().map(legacy_escape).collect()),
+		Value::Object(map) => Value::Object(map.into_iter().map(|(k, v)| (k, legacy_escape(v))).collect()),
+		other => other,
+	}
 }
 
 /// Constant-time token check. `None` expected means the route is disabled.
@@ -304,6 +324,15 @@ mod tests {
 			"limit=10&after=t3_x&before=t3_y&t=week&sort=top&q=rust%20lang&restrict_sr=on&raw_json=1"
 		);
 		assert_eq!(filter_query("api&type=json&limit=5&token=x&redirect=evil"), "type=json&limit=5");
+	}
+
+	#[test]
+	fn legacy_escape_matches_reddits_raw_json_0() {
+		let value = json_value!({ "body": "a < b && c > d", "n": 1, "replies": [{ "body_html": "<p>&#39;</p>" }] });
+		assert_eq!(
+			legacy_escape(value),
+			json_value!({ "body": "a &lt; b &amp;&amp; c &gt; d", "n": 1, "replies": [{ "body_html": "&lt;p&gt;&amp;#39;&lt;/p&gt;" }] })
+		);
 	}
 
 	#[test]

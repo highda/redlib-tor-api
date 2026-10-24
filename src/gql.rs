@@ -161,7 +161,7 @@ fn listing(children: Vec<Value>) -> Value {
 	json_value!({ "kind": "Listing", "data": { "children": children } })
 }
 
-fn parse_path(path: &str) -> Option<(String, Option<String>)> {
+pub(crate) fn parse_path(path: &str) -> Option<(String, Option<String>)> {
 	let base = path.split('?').next()?.strip_suffix(".json")?;
 	let tail = if let Some(tail) = base.strip_prefix("/comments/") {
 		tail
