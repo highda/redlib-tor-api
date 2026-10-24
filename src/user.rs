@@ -1,8 +1,8 @@
 #![allow(clippy::cmp_owned)]
 use crate::client::json;
 use crate::server::RequestExt;
-use crate::utils::{error, filter_posts, format_url, get_filters, nsfw_landing, param, setting, template, Post, Preferences, User};
 use crate::utils;
+use crate::utils::{error, filter_posts, format_url, get_filters, nsfw_landing, param, setting, template, Post, Preferences, User};
 use askama::Template;
 use chrono::DateTime;
 use hyper::{Body, Request, Response};

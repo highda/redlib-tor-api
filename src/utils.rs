@@ -1141,9 +1141,8 @@ static REDDIT_PREVIEW_ANCHOR_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 	Regex::new(r#"(?s)<p><a href="(https?://(?:external-preview|preview|i)\.(?:redd\.it|redditdotzhmh3mao6r5i2j7speppwqkizwo7vksy3mbz5iz7rlhocyd\.onion)[^"]*)">(.*?)</a></p>"#)
 		.unwrap()
 });
-static REDDIT_EMOJI_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-	Regex::new(r#"https?://(?:www\.)?(?:redditstatic\.com|reddittic34i5gtjcnm2fb7fv2eyop4vbxquuc36prnbs7d2kp3saoqd\.onion)/[^\s"'<>]*"#).unwrap()
-});
+static REDDIT_EMOJI_REGEX: LazyLock<Regex> =
+	LazyLock::new(|| Regex::new(r#"https?://(?:www\.)?(?:redditstatic\.com|reddittic34i5gtjcnm2fb7fv2eyop4vbxquuc36prnbs7d2kp3saoqd\.onion)/[^\s"'<>]*"#).unwrap());
 
 /// Rewrite Reddit links to Redlib in body of text
 pub fn rewrite_urls(input_text: &str) -> String {

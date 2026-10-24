@@ -663,11 +663,7 @@ mod tests {
 	fn test_blocked_response_reports_the_block_not_a_json_error() {
 		// Reddit's block page is HTML, so serde fails on it. The message the
 		// user sees must not blame JSON parsing.
-		let msg = non_json_response_error(
-			403,
-			"expected value at line 1 column 1",
-			"/r/politics/comments/1x9xx9e/.json?&sort=confidence&raw_json=1",
-		);
+		let msg = non_json_response_error(403, "expected value at line 1 column 1", "/r/politics/comments/1x9xx9e/.json?&sort=confidence&raw_json=1");
 		assert!(msg.contains("403"), "{msg}");
 		assert!(!msg.contains("Failed to parse page JSON data"), "{msg}");
 		assert!(msg.contains("/r/politics/comments/1x9xx9e/.json"), "{msg}");
