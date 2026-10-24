@@ -1331,12 +1331,27 @@ pub fn template(t: &impl Template) -> Response<Body> {
 		.unwrap_or_default()
 }
 
+fn safe_redirect_path(path: &str) -> &str {
+	let route = path.split('?').next().unwrap_or_default();
+	if path.len() >= 2 && path.starts_with('/') && !path.starts_with("//") && !route.contains(':') && !path.contains('\\') && !path.chars().any(|c| c.is_control()) {
+		path
+	} else {
+		"/"
+	}
+}
+
 pub fn redirect(path: &str) -> Response<Body> {
+	let path = safe_redirect_path(path);
+	let body = format!(
+		"Redirecting to <a href=\"{}\">{}</a>...",
+		htmlescape::encode_minimal(path),
+		htmlescape::encode_minimal(path),
+	);
 	Response::builder()
 		.status(302)
 		.header("content-type", "text/html")
 		.header("Location", path)
-		.body(format!("Redirecting to <a href=\"{path}\">{path}</a>...").into())
+		.body(body.into())
 		.unwrap_or_default()
 }
 
@@ -1608,6 +1623,25 @@ mod tests {
 		let input = r#"<div class="md"><p>How can you have such hard feelings towards a license? <img src="https://www.redditstatic.com/marketplace-assets/v1/core/emotes/snoomoji_emotes/free_emotes_pack/shrug.gif" width="20" height="20" style="vertical-align:middle"> Let people use what license they want, and BSD is one of the least restrictive ones AFAIK.</p>"#;
 		let output = r#"<div class="md"><p>How can you have such hard feelings towards a license? <img src="/static/marketplace-assets/v1/core/emotes/snoomoji_emotes/free_emotes_pack/shrug.gif" width="20" height="20" style="vertical-align:middle"> Let people use what license they want, and BSD is one of the least restrictive ones AFAIK.</p>"#;
 		assert_eq!(rewrite_urls(input), output);
+	}
+
+	#[test]
+	fn test_redirect_only_follows_same_site_paths() {
+		for (target, location) in [
+			("/r/rust", "/r/rust"),
+			("/settings/restore/?subscriptions=a%2Bb&q=a:b", "/settings/restore/?subscriptions=a%2Bb&q=a:b"),
+			("//evil.example/", "/"),
+			("/\\evil.example/", "/"),
+			("https://evil.example/", "/"),
+			("/javascript:alert(1)", "/"),
+			("/r/rust\r\nSet-Cookie: a=b", "/"),
+			("", "/"),
+		] {
+			assert_eq!(super::redirect(target).headers()["Location"], location, "{target}");
+		}
+		let body = hyper::body::to_bytes(super::redirect("/r/rust?a=\"><script>").into_body());
+		let body = futures_lite::future::block_on(body).unwrap();
+		assert!(!String::from_utf8_lossy(&body).contains("<script>"));
 	}
 
 	#[test]
