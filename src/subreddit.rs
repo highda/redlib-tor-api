@@ -605,7 +605,7 @@ pub async fn rss(req: Request<Body>) -> Result<Response<Body>, String> {
 	};
 
 	// Get path
-	let path = format!("/r/{sub}/{sort}.json?{}", req.uri().query().unwrap_or_default());
+	let path = format!("/r/{sub}/{sort}.json?{}&raw_json=1", req.uri().query().unwrap_or_default());
 
 	// Get subreddit link
 	let subreddit_link: String = format!("{}/r/{sub}", config::get_setting("REDLIB_FULL_URL").unwrap_or_default());
@@ -637,7 +637,7 @@ pub async fn rss(req: Request<Body>) -> Result<Response<Body>, String> {
 						title: Some(post.title.to_string()),
 						link: Some(format_url(&utils::get_post_url(&post))),
 						author: Some(post.author.name.to_string()),
-						content: Some(rewrite_urls(&decode_html(&post.body).unwrap())),
+						content: Some(rewrite_urls(&post.body)),
 						pub_date: Some(DateTime::from_timestamp(post.created_ts as i64, 0).unwrap_or_default().to_rfc2822()),
 						description: Some(format!("<a href='{}'>Comments</a>", to_absolute_url(&post.permalink))),
 						..Default::default()
