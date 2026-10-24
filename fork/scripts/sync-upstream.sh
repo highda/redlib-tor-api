@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Brings upstream Redlib's main into this fork's main (merge, no rebase, so
-# published tags stay valid) and reports whether baalajimaestro's Tor fork has
-# moved since the commit we carry.
+# published tags stay valid), reports whether baalajimaestro's Tor fork has
+# moved since the commit we carry, and lists recent commits of the forks we
+# pick fixes from (PICK_REPOS).
 #
 #   fork/scripts/sync-upstream.sh            # fetch, report, merge upstream/main
 #   fork/scripts/sync-upstream.sh --report   # fetch and report only
@@ -21,7 +22,7 @@ if [[ -n "$(git status --porcelain)" ]]; then
   echo "Working tree is not clean; commit or stash first." >&2
   exit 1
 fi
-[[ "$(git rev-parse --abbrev-ref HEAD)" == "main" ]] || { echo "Run this on main." >&2; exit 1; }
+[[ "$REPORT_ONLY" == 1 || "$(git rev-parse --abbrev-ref HEAD)" == "main" ]] || { echo "Run this on main." >&2; exit 1; }
 
 git remote get-url upstream >/dev/null 2>&1 || git remote add upstream "$UPSTREAM_REPO"
 git remote get-url yunyun >/dev/null 2>&1 || git remote add yunyun "$YUNYUN_REPO"
@@ -46,6 +47,19 @@ if git rev-parse --verify --quiet yunyun/main >/dev/null; then
     git log --oneline -n 5 yunyun/main | sed 's/^/  /'
   fi
 fi
+
+# Forks we pick fixes from: their latest non-merge commits, minus what we already
+# carry (same patch). Pick by hand: see fork/README.md, "Picked fixes".
+for repo in ${PICK_REPOS:-}; do
+  name="$(basename "$(dirname "$repo")")"
+  if git fetch --quiet "$repo" "+HEAD:refs/picks/$name" 2>/dev/null; then
+    echo "$name: newest commits not in this branch"
+    git cherry HEAD "refs/picks/$name" 2>/dev/null | awk '$1 == "+" { print $2 }' | tail -n 15 \
+      | xargs -r git log --no-walk=sorted --no-merges --format='  %h %cs %an: %s' 2>/dev/null
+  else
+    echo "warning: could not fetch $repo" >&2
+  fi
+done
 
 (( REPORT_ONLY )) && exit 0
 if [[ "$behind" == "0" ]]; then

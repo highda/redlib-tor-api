@@ -6,7 +6,8 @@ apps that speak Teddit's API (for example the Android clients
 [Stealth](https://gitlab.com/cosmosapps/stealth) and
 [Stealth-Continued](https://github.com/highda/stealth-continued)) can use a Redlib instance.
 
-It is three things on top of upstream Redlib:
+It is three things on top of upstream Redlib, plus fixes picked from other forks
+([Picked fixes](#picked-fixes)):
 
 1. **baalajimaestro's Tor fork**, one commit taken as is from
    [git.ptr.moe/baalajimaestro/redlib](https://git.ptr.moe/baalajimaestro/redlib):
@@ -17,7 +18,8 @@ It is three things on top of upstream Redlib:
    using Teddit's own processing code, fed through Redlib's `/raw`.
 
 Everything this fork adds lives in `fork/` and `.github/workflows/redlib-tor-api-release.yml`;
-the rest of the tree is upstream Redlib (plus the Tor commit), so syncing stays cheap.
+the rest of the tree is upstream Redlib (plus the Tor commit and the picked fixes), so
+syncing stays cheap.
 
 ## Architecture
 
@@ -162,6 +164,12 @@ the limitations below.
   restricted to those subreddits instead.
 - `/raw` does not forward `/api/morechildren`, so "load more comments" has to fetch comment
   permalinks; there is no user search route.
+- Reddit blocks anonymous API clients more each month. Since 2026-10-22 its onion API
+  answers any path ending in `.json` with a 403, so the client sends those paths without
+  the suffix (Reddit still returns JSON), and the comments JSON is blocked in every form,
+  so post pages and `/raw` threads come from Reddit's GraphQL API (`gql-fed` on the same
+  onion, upstream PR #603). If Reddit changes the persisted query hash, comments break
+  until `src/gql.rs` is updated.
 - Reddit's media onion (i/v/preview.redd.it) can stop answering while the API onion keeps
   working: listings load, every image times out. The examples' Tor healthcheck reports it
   as unhealthy and a Tor restart fixes it; Docker does not restart unhealthy containers by
@@ -236,9 +244,45 @@ git push && # then publish a release
 The script keeps upstream's workflow files deleted (the Tor commit removed them; this
 fork runs only its own workflow) and stops with a list of files on any other conflict.
 
+Before merging, check the [picked fixes](#picked-fixes) against what upstream merged: when
+upstream takes one of them (the `(cherry picked from commit …)` line names the source),
+resolve that conflict in upstream's favour and drop its row from the table.
+
 ### When baalajimaestro updates
 
 His work is one squashed commit (`YUNYUN_COMMIT` in `fork/upstream.env`). If his branch
 gains new commits on top of it, cherry-pick them (`git cherry-pick -x <sha>`), keeping him
 as author. If he rewrites the squash instead, apply the difference between his old and
 new commit as one commit authored by him, update `YUNYUN_COMMIT`, run `check.sh`.
+
+## Picked fixes
+
+Fixes taken from other forks and from unmerged upstream pull requests. Each commit keeps its
+author; the line `(cherry picked from commit <sha> in <source>)` names where it came from,
+and `[highda: …]` above it says what was changed to make it fit. Fixes that only matter
+behind a clearnet IP (session cookies, headless browsers) are left out on purpose.
+
+| Fix | Author | Source |
+|---|---|---|
+| A blocked response says it was blocked, not "Failed to parse page JSON data" | cute-johnny | [Nachtalb/redlib](https://github.com/Nachtalb/redlib) `1e9515e` |
+| `REDLIB_DEFAULT_POST_SORT` applies before settings are saved | Sparronator9999 | [redlib-org#521](https://github.com/redlib-org/redlib/pull/521) |
+| …and falls back to `hot` when it is unset | polak14 | [polak14/redlib](https://github.com/polak14/redlib) `19c6606` |
+| `/u/<name>/s/<id>` share links | Butter Cat | [redlib-org#560](https://github.com/redlib-org/redlib/pull/560) |
+| `/commits.atom` and `/instances.json` serve the cached copy when GitHub fails | Nachtalb | [Nachtalb/redlib](https://github.com/Nachtalb/redlib) `fa54e66` (port of redlib-org#396) |
+| RSS: `REDLIB_ENABLE_RSS=off` really turns feeds off; r/popular and r/all feeds; no double-decoded entities | VictorVow | [Nachtalb/redlib](https://github.com/Nachtalb/redlib) `d0261dc`, `54b93b6`, `b875c64` |
+| `geo_filter` survives r/popular pagination | Sean | [redlib-org#596](https://github.com/redlib-org/redlib/pull/596) |
+| Pausing an HLS video while it loads sticks | Nachtalb | [Nachtalb/redlib](https://github.com/Nachtalb/redlib) `4487817` |
+| No panic on a malformed comment `parent_id` | Liam Newman | [mrnamwen/redlib](https://github.com/mrnamwen/redlib) `077ba8b` |
+| Onion API paths drop the `.json` suffix Reddit now rejects | LucifersCircle | [LucifersCircle/redlib](https://github.com/LucifersCircle/redlib) `d601f9a` |
+| Redirects only go to same-site paths (open redirect, HTML injection) | SpikeHD | [SpikeHD/redlib-ex](https://github.com/SpikeHD/redlib-ex) `b740ef5` |
+| A failed background token refresh keeps the token and backs off instead of exiting | Mitch Ross | [mitchross/redlib](https://github.com/mitchross/redlib) `494a7c4`, `39aed9f` |
+| Post comments through Reddit's GraphQL API | trqwenyy, polak14 | [redlib-org#603](https://github.com/redlib-org/redlib/pull/603) |
+| Onion authentication gets 90 s to build a circuit | baalajimaestro | [baalajimaestro/redlib](https://git.ptr.moe/baalajimaestro/redlib) `a86b3e0`, `src/oauth.rs` only |
+
+baalajimaestro's `a86b3e0` also restores comments, by scraping Reddit's Shreddit HTML
+fragments (about 1,000 lines plus the `scraper` crate). This fork uses the GraphQL route
+instead: it is smaller, returns the JSON shape `/raw` already passes through, and passed
+the live smoke test. If GraphQL breaks, his scraper is the fallback to port.
+
+This fork's own follow-ups: an HTML 404 is reported as not found, GraphQL goes to the
+onion, and `/raw` serves threads through GraphQL.
