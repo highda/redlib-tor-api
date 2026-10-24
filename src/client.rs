@@ -253,7 +253,8 @@ fn reddit_short_head(path: String, quarantine: bool, base_path: &'static str, ho
 fn request(method: &'static Method, path: String, redirect: bool, quarantine: bool, base_path: &'static str, host: &'static str) -> Boxed<Result<WreqResponse, String>> {
 	// Keep the logical path unchanged for caches and diagnostics. Reddit blocks
 	// literal anonymous comments routes, so only rewrite the outgoing URL.
-	let transport_path = comments_transport_path(&path);
+	let api_path = onion_api_transport_path(&path, host);
+	let transport_path = comments_transport_path(&api_path);
 	let url = format!("{base_path}{transport_path}");
 
 	let mut headers: Vec<(String, String)> = vec![
@@ -336,6 +337,23 @@ fn request(method: &'static Method, path: String, redirect: bool, quarantine: bo
 		}
 	}
 	.boxed()
+}
+
+/// Reddit's onion OAuth API serves JSON without the `.json` suffix and rejects
+/// the suffixed route with a 403. Strip it from the outgoing path only, so the
+/// logical path stays the same for caches, redirects and diagnostics.
+fn onion_api_transport_path<'a>(path: &'a str, host: &str) -> Cow<'a, str> {
+	if host != reddit_urls::OAUTH_REDDIT_ONION_HOST {
+		return Cow::Borrowed(path);
+	}
+	let (base, query) = path.split_once('?').map_or((path, None), |(base, query)| (base, Some(query)));
+	let Some(base) = base.strip_suffix(".json") else {
+		return Cow::Borrowed(path);
+	};
+	Cow::Owned(match query {
+		Some(query) => format!("{base}?{query}"),
+		None => base.to_string(),
+	})
 }
 
 /// Encode one separator in comments API routes to avoid Reddit's anonymous
@@ -645,6 +663,34 @@ mod tests {
 
 		let path = "/r/rust/comments/abc.json?sort=new&context=3&q=a%2Bb&empty=&sort=top";
 		assert_eq!(comments_transport_path(path), "/r/rust%2Fcomments/abc.json?sort=new&context=3&q=a%2Bb&empty=&sort=top");
+	}
+
+	#[test]
+	fn test_onion_api_transport_path_strips_json_suffix_only_on_the_onion() {
+		let onion = reddit_urls::OAUTH_REDDIT_ONION_HOST;
+		for (logical, wire) in [
+			("/r/all/hot.json?sort=hot&t=&after=t3_1xay0pv", "/r/all/hot?sort=hot&t=&after=t3_1xay0pv"),
+			("/search.json?q=example.json&sort=new", "/search?q=example.json&sort=new"),
+			("/user/example/about.json", "/user/example/about"),
+			("/r/example.json/hot.json", "/r/example.json/hot"),
+			("/.json?raw_json=1", "/?raw_json=1"),
+		] {
+			assert_eq!(onion_api_transport_path(logical, onion), wire);
+			assert_eq!(onion_api_transport_path(logical, reddit_urls::OAUTH_REDDIT_HOST), logical);
+			assert_eq!(onion_api_transport_path(wire, onion), wire);
+		}
+		for path in ["/api/morechildren?children=a,b", "/r/all/hot?after=t3_abc.json", "/r/example/about.json/"] {
+			assert!(matches!(onion_api_transport_path(path, onion), Cow::Borrowed(_)), "{path}");
+		}
+	}
+
+	#[test]
+	fn test_onion_api_transport_path_keeps_comments_encoding() {
+		let onion = reddit_urls::OAUTH_REDDIT_ONION_HOST;
+		assert_eq!(
+			comments_transport_path(&onion_api_transport_path("/r/codex/comments/1xaomu1.json?sort=new&limit=500", onion)),
+			"/r/codex%2Fcomments/1xaomu1?sort=new&limit=500"
+		);
 	}
 
 	#[test]
