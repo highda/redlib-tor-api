@@ -539,7 +539,12 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 /// See <https://github.com/redlib-org/redlib/issues/591>.
 fn non_json_response_error(status: u16, parse_error: &str, path: &str) -> String {
 	if status == 403 {
-		format!("Reddit blocked this request (403 Forbidden): Reddit now requires a logged-in session for this endpoint | {path}")
+		format!("Reddit blocked this request (403 Forbidden) | {path}")
+	} else if status == 404 {
+		// Without the .json suffix (see onion_api_transport_path), a missing
+		// subreddit or user comes back as an HTML 404. Report it the way the JSON
+		// 404 is reported, so callers see the same "not found".
+		format!("Reddit error 404 \"\": \"Not Found\" | {path}")
 	} else if (500..=599).contains(&status) {
 		"Reddit is having issues, check if there's an outage".to_string()
 	} else {
@@ -713,6 +718,14 @@ mod tests {
 		assert!(msg.contains("403"), "{msg}");
 		assert!(!msg.contains("Failed to parse page JSON data"), "{msg}");
 		assert!(msg.contains("/r/politics/comments/1x9xx9e/.json"), "{msg}");
+	}
+
+	#[test]
+	fn test_non_json_404_reads_like_reddits_json_404() {
+		assert_eq!(
+			non_json_response_error(404, "expected value at line 1 column 1", "/r/nope/hot.json"),
+			"Reddit error 404 \"\": \"Not Found\" | /r/nope/hot.json"
+		);
 	}
 
 	#[test]
