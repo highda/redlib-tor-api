@@ -159,9 +159,51 @@ fn listing(children: Vec<Value>) -> Value {
 	json_value!({ "kind": "Listing", "data": { "children": children } })
 }
 
+/// The thread as Reddit's JSON API would send it, for API clients (`/raw`): the
+/// comment fields GraphQL does not give (taken from the post), and the rest of
+/// the thread as a trailing top-level "more" stub. Redlib's own pages use
+/// `after` instead.
+pub(crate) fn for_api_clients(thread: Value) -> Value {
+	let mut thread = with_next_page_stub(thread);
+	let post = thread[0]["data"]["children"][0]["data"].clone();
+	if let Some(children) = thread[1]["data"]["children"].as_array_mut() {
+		children.iter_mut().for_each(|c| complete_comment(c, &post));
+	}
+	thread
+}
+
+/// Adds Reddit's comment fields that clients require to a comment and its replies.
+fn complete_comment(comment: &mut Value, post: &Value) {
+	if comment["kind"] != "t1" {
+		return;
+	}
+	let data = &mut comment["data"];
+	let id = data["id"].as_str().unwrap_or_default().to_owned();
+	let permalink = post["permalink"].as_str().unwrap_or_default();
+	data["link_id"] = post["name"].clone();
+	data["permalink"] = format!("{}{id}/", if permalink.ends_with('/') { permalink.to_owned() } else { format!("{permalink}/") }).into();
+	data["subreddit"] = post["subreddit"].clone();
+	data["subreddit_name_prefixed"] = post["subreddit_name_prefixed"].clone();
+	data["is_submitter"] = (data["author"] == post["author"] && data["author"] != "[deleted]").into();
+	data["controversiality"] = 0.into();
+	if let Some(awards) = data["all_awardings"].as_array_mut() {
+		for award in awards.iter_mut() {
+			let url = award["resized_icons"][0]["url"].clone();
+			award["icon_url"] = url.clone();
+			award["resized_icons"] = json_value!([{ "url": url, "width": 16, "height": 16 }]);
+		}
+	}
+	let total: i64 = data["all_awardings"].as_array().into_iter().flatten().filter_map(|a| a["count"].as_i64()).sum();
+	data["total_awards_received"] = total.into();
+	// Without replies, `replies` is an empty string, which cannot be indexed mutably
+	if let Some(replies) = data.get_mut("replies").and_then(|r| r.pointer_mut("/data/children")).and_then(Value::as_array_mut) {
+		replies.iter_mut().for_each(|c| complete_comment(c, post));
+	}
+}
+
 /// Reddit's JSON lists the rest of a thread as a trailing top-level "more" stub,
-/// which is what API clients look for. Redlib's own pages use `after` instead.
-pub(crate) fn with_next_page_stub(mut thread: Value) -> Value {
+/// which is what API clients look for.
+fn with_next_page_stub(mut thread: Value) -> Value {
 	let comments = &mut thread[1]["data"];
 	if let Some(cursor) = comments["after"].as_str().map(str::to_owned) {
 		let parent = thread[0]["data"]["children"][0]["data"]["name"].as_str().unwrap_or_default().to_owned();
@@ -657,6 +699,33 @@ mod tests {
 		assert_eq!(more["name"], more["id"]);
 		assert_eq!(more["depth"], 1);
 		assert_eq!(more["children"], json_value!([]));
+	}
+
+	#[test]
+	fn api_clients_get_reddits_comment_fields() {
+		let post = json_value!({ "data": { "children": [{ "data": {
+			"name": "t3_p", "author": "op", "permalink": "/r/rust/comments/p/title/", "subreddit": "rust", "subreddit_name_prefixed": "r/rust"
+		} }] } });
+		let reply = json_value!({ "kind": "t1", "data": { "id": "b", "author": "op", "all_awardings": [], "replies": "" } });
+		let comment = json_value!({ "kind": "t1", "data": {
+			"id": "a", "author": "x", "all_awardings": [{ "name": "Bravo", "count": 2, "resized_icons": [{ "url": "/i.png" }] }],
+			"replies": { "kind": "Listing", "data": { "children": [reply] } }
+		} });
+		let thread = for_api_clients(json_value!([post, { "kind": "Listing", "data": { "children": [comment], "after": null } }]));
+		let a = &thread[1]["data"]["children"][0]["data"];
+		assert_eq!(a["link_id"], "t3_p");
+		assert_eq!(a["permalink"], "/r/rust/comments/p/title/a/");
+		assert_eq!(a["subreddit_name_prefixed"], "r/rust");
+		assert_eq!(a["is_submitter"], false);
+		assert_eq!(a["controversiality"], 0);
+		assert_eq!(a["total_awards_received"], 2);
+		assert_eq!(
+			a["all_awardings"][0],
+			json_value!({ "name": "Bravo", "count": 2, "icon_url": "/i.png", "resized_icons": [{ "url": "/i.png", "width": 16, "height": 16 }] })
+		);
+		let b = &a["replies"]["data"]["children"][0]["data"];
+		assert_eq!(b["is_submitter"], true);
+		assert_eq!(b["permalink"], "/r/rust/comments/p/title/b/");
 	}
 
 	#[test]

@@ -76,7 +76,7 @@ pub async fn handler(req: Request<Body>) -> Result<Response<Body>, String> {
 		let raw = query.split('&').any(|pair| pair == "raw_json=1");
 		crate::gql::thread(target, true)
 			.await
-			.map(crate::gql::with_next_page_stub)
+			.map(crate::gql::for_api_clients)
 			.map(|value| if raw { value } else { legacy_escape(value) })
 	} else {
 		json(target, true).await
