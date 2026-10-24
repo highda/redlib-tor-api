@@ -6,7 +6,11 @@ use crate::{
 use base64::{engine::general_purpose, Engine as _};
 use log::{error, info, trace, warn};
 use serde_json::json;
-use std::{collections::HashMap, sync::atomic::Ordering, time::Duration};
+use std::{
+	collections::HashMap,
+	sync::atomic::{AtomicU32, AtomicU64, Ordering},
+	time::{Duration, SystemTime, UNIX_EPOCH},
+};
 use tegen::tegen::TextGenerator;
 use tokio::time::{error::Elapsed, timeout};
 
@@ -132,6 +136,30 @@ impl Oauth {
 		.await
 	}
 
+	/// One attempt at a fresh client for a background refresh: the default
+	/// backend, then GenericWeb unless a backend is forced. Unlike `new`, it
+	/// never retries for long or exits the process; on failure the caller keeps
+	/// the current token and a later trigger tries again.
+	async fn try_refresh() -> Option<Self> {
+		let forced_backend = std::env::var("REDLIB_OAUTH_BACKEND").ok();
+		let mut backends = vec![match forced_backend.as_deref() {
+			Some("generic") => OauthBackendImpl::GenericWeb(GenericWebAuth::new()),
+			_ => OauthBackendImpl::MobileSpoof(MobileSpoofAuth::new()),
+		}];
+		if forced_backend.is_none() {
+			backends.push(OauthBackendImpl::GenericWeb(GenericWebAuth::new()));
+		}
+
+		for backend in backends {
+			match Self::new_with_timeout_with_backend(backend).await {
+				Ok(Ok(oauth)) => return Some(oauth),
+				Ok(Err(e)) => warn!("[⚠️] Token refresh attempt failed: {e:?}"),
+				Err(_) => warn!("[⚠️] Token refresh attempt timed out"),
+			}
+		}
+		None
+	}
+
 	pub fn user_agent(&self) -> &str {
 		self.backend.user_agent()
 	}
@@ -162,8 +190,10 @@ pub async fn token_daemon() {
 		// Get expiry time - be sure to not hold the read lock
 		let expires_in = { OAUTH_CLIENT.load_full().expires_in };
 
-		// sleep for the expiry time minus 2 minutes
-		let duration = Duration::from_secs(expires_in - 120);
+		// Sleep for the expiry time minus 2 minutes. Saturating, with a floor:
+		// a token shorter than 2 minutes used to underflow and panic this task,
+		// silently ending scheduled refreshes.
+		let duration = Duration::from_secs(expires_in.saturating_sub(120).max(30));
 
 		info!("[⏳] Waiting for {duration:?} seconds before refreshing OAuth token...");
 
@@ -171,24 +201,68 @@ pub async fn token_daemon() {
 
 		info!("[⌛] {duration:?} Elapsed! Refreshing OAuth token...");
 
-		// Refresh token - in its own scope
-		{
-			force_refresh_token().await;
+		// On failure the current token is kept but will expire soon, so retry
+		// in a minute rather than after another full token lifetime.
+		while !force_refresh_token().await {
+			tokio::time::sleep(Duration::from_secs(60)).await;
 		}
 	}
 }
 
-pub async fn force_refresh_token() {
+/// Consecutive failed refreshes; drives the backoff below.
+static REFRESH_FAILURES: AtomicU32 = AtomicU32::new(0);
+
+/// Unix seconds before which no new refresh is attempted after a failure.
+static NEXT_REFRESH_AT: AtomicU64 = AtomicU64::new(0);
+
+/// Wait after the `failures`-th consecutive failed refresh: 30 s, 1, 2, 4 min,
+/// then 5 min at most. Without it, every request during a Reddit block retried
+/// the token endpoint (~180 calls/min on 2026-10-03), likely prolonging blocks.
+fn refresh_backoff_secs(failures: u32) -> u64 {
+	(30u64 << failures.saturating_sub(1).min(4)).min(300)
+}
+
+fn unix_now() -> u64 {
+	SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
+/// Swap in a fresh OAuth client. Returns false if it couldn't, in which case the
+/// current client stays in place. Concurrent calls collapse into one. Successful
+/// refreshes can repeat immediately (that is how rate-limit rollover works); after
+/// a failure, further attempts wait out [`refresh_backoff_secs`].
+pub async fn force_refresh_token() -> bool {
+	if unix_now() < NEXT_REFRESH_AT.load(Ordering::SeqCst) {
+		trace!("Skipping token refresh, backing off after a failure");
+		return false;
+	}
 	if OAUTH_IS_ROLLING_OVER.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
 		trace!("Skipping refresh token roll over, already in progress");
-		return;
+		return true;
 	}
 
 	trace!("Rolling over refresh token. Current rate limit: {}", OAUTH_RATELIMIT_REMAINING.load(Ordering::SeqCst));
-	let new_client = Oauth::new().await;
-	OAUTH_CLIENT.swap(new_client.into());
-	OAUTH_RATELIMIT_REMAINING.store(99, Ordering::SeqCst);
+	let refreshed = match Oauth::try_refresh().await {
+		Some(new_client) => {
+			OAUTH_CLIENT.swap(new_client.into());
+			OAUTH_RATELIMIT_REMAINING.store(99, Ordering::SeqCst);
+			if REFRESH_FAILURES.swap(0, Ordering::SeqCst) > 0 {
+				warn!("[✅] OAuth token refreshed after earlier failures; backoff cleared");
+			}
+			NEXT_REFRESH_AT.store(0, Ordering::SeqCst);
+			true
+		}
+		// Used to fall through to Oauth::new, which retries ~100 s and then exits the
+		// process. The current token may still work, so keep it and back off.
+		None => {
+			let failures = REFRESH_FAILURES.fetch_add(1, Ordering::SeqCst) + 1;
+			let wait = refresh_backoff_secs(failures);
+			NEXT_REFRESH_AT.store(unix_now() + wait, Ordering::SeqCst);
+			warn!("[⚠️] Could not refresh the OAuth token (failure {failures} in a row); keeping the current one, next attempt in {wait} s");
+			false
+		}
+	};
 	OAUTH_IS_ROLLING_OVER.store(false, Ordering::SeqCst);
+	refreshed
 }
 
 #[derive(Debug, Clone, Default)]
@@ -533,5 +607,17 @@ mod tests {
 		// Test that both backends can be created
 		MobileSpoofAuth::new();
 		GenericWebAuth::new();
+	}
+}
+
+#[cfg(test)]
+mod refresh_backoff_tests {
+	use super::refresh_backoff_secs;
+
+	#[test]
+	fn backoff_doubles_from_30s_and_caps_at_5_minutes() {
+		let waits: Vec<u64> = (1..=7).map(refresh_backoff_secs).collect();
+		assert_eq!(waits, vec![30, 60, 120, 240, 300, 300, 300]);
+		assert_eq!(refresh_backoff_secs(u32::MAX), 300);
 	}
 }
