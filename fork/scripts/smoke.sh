@@ -122,6 +122,15 @@ check raw_blocked            '/raw/r/rust/hot.json'                  404 ''
 check raw_blocked_slashes    '//raw/r/rust/hot.json'                 404 ''
 check raw_media_blocked      '/raw/media/i.redd.it/x.jpg'            404 ''
 
+# Live Reddit only (the offline fixtures predate these): several subreddits at once,
+# user search, and thread continuation through a "more" stub's cursor
+if (( ! OFFLINE )); then
+  check stealth_multi_sub    "/r/rust+linux/new?api$ST"              200 "$J" '[.data.children[].data.subreddit | ascii_downcase] | unique == ["linux", "rust"]'
+  check stealth_user_search  "/users/search?api&q=spez$ST"           200 "$J" '[.data.children[].data.name] | index("spez") != null'
+  MORE="$(jq -r '.[1].data.children[-1] | select(.kind == "more") | .data.id' "$TMP/last_stealth_post" 2>/dev/null)"
+  check stealth_post_more    "$POST?api&cursor=$MORE$ST"             200 "$J" '(.[1].data.children | length) > 0 and .[1].data.children[0].kind == "t1"'
+fi
+
 # Redlib HTML (needs the real Redlib, so skipped offline)
 if (( GATED )); then
   check redlib_html_gated    '/r/rust'                               200 '' empty

@@ -22,6 +22,7 @@ const QUERY_ALLOWLIST: &[&str] = &[
 	"before",
 	"context",
 	"count",
+	"cursor",
 	"depth",
 	"include_over_18",
 	"limit",
@@ -73,7 +74,10 @@ pub async fn handler(req: Request<Body>) -> Result<Response<Body>, String> {
 	// clients that did not ask for raw_json=1 Reddit's legacy escaping back.
 	let result = if crate::gql::parse_path(&target).is_some() {
 		let raw = query.split('&').any(|pair| pair == "raw_json=1");
-		crate::gql::thread(target, true).await.map(|value| if raw { value } else { legacy_escape(value) })
+		crate::gql::thread(target, true)
+			.await
+			.map(crate::gql::with_next_page_stub)
+			.map(|value| if raw { value } else { legacy_escape(value) })
 	} else {
 		json(target, true).await
 	};
@@ -136,6 +140,7 @@ fn reddit_path(path: &str) -> Option<String> {
 		["user", name, listing] => is_user(name) && USER_LISTINGS.contains(listing),
 		// Subreddit discovery
 		["subreddits", listing] => SUBREDDITS_LISTINGS.contains(listing),
+		["users", "search"] => true,
 		_ => false,
 	};
 
@@ -144,6 +149,13 @@ fn reddit_path(path: &str) -> Option<String> {
 		if segs.is_empty() {
 			"/hot.json".to_string()
 		} else {
+			// Reddit reads a literal `+` in `/r/a+b` as a space and answers with
+			// r/popular; Redlib's own pages encode it too.
+			let segs: Vec<String> = segs
+				.iter()
+				.enumerate()
+				.map(|(i, seg)| if i == 1 && segs[0] == "r" { seg.replace('+', "%2B") } else { (*seg).to_string() })
+				.collect();
 			format!("/{}.json", segs.join("/"))
 		}
 	})
@@ -258,7 +270,8 @@ mod tests {
 			("/top.json", "/top.json"),
 			("/r/rust", "/r/rust.json"),
 			("/r/rust/hot.json", "/r/rust/hot.json"),
-			("/r/rust+linux/new", "/r/rust+linux/new.json"),
+			("/r/rust+linux/new", "/r/rust%2Blinux/new.json"),
+			("/r/rust+linux", "/r/rust%2Blinux.json"),
 			("/r/rust/about", "/r/rust/about.json"),
 			("/r/rust/search.json", "/r/rust/search.json"),
 			("/r/rust/comments/abc123", "/r/rust/comments/abc123.json"),
@@ -271,6 +284,7 @@ mod tests {
 			("/user/spez/overview", "/user/spez/overview.json"),
 			("/search.json", "/search.json"),
 			("/subreddits/search", "/subreddits/search.json"),
+			("/users/search", "/users/search.json"),
 		];
 		for (input, expected) in ok {
 			assert_eq!(reddit_path(input).as_deref(), Some(expected), "{input}");

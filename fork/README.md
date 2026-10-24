@@ -159,11 +159,6 @@ the limitations below.
 
 ## Known limitations
 
-- `/r/a+b` (several subreddits at once) answers with r/popular: `/raw` passes the `+` to
-  Reddit unencoded, and Reddit reads it as a space. Stealth-Continued uses a search
-  restricted to those subreddits instead.
-- `/raw` does not forward `/api/morechildren`, so "load more comments" has to fetch comment
-  permalinks; there is no user search route.
 - Reddit blocks anonymous API clients more each month. Since 2026-10-22 its onion API
   answers any path ending in `.json` with a 403, so the client sends those paths without
   the suffix (Reddit still returns JSON), and the comments JSON is blocked in every form,

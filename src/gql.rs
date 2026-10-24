@@ -125,14 +125,12 @@ fn comment_listing(response: &Value, post_id: &str) -> Result<Value, String> {
 	let trees = response["data"]["postInfoById"]["commentForest"]["trees"]
 		.as_array()
 		.ok_or("Reddit returned no comment forest")?;
-	let after = trees
-		.iter()
-		.find(|t| is_next_page(t))
-		.and_then(|t| t["more"]["cursor"].as_str())
-		.map(|cursor| URL_SAFE_NO_PAD.encode(cursor));
+	let next_page = trees.iter().find(|t| is_next_page(t));
+	let after = next_page.and_then(|t| t["more"]["cursor"].as_str()).map(|cursor| URL_SAFE_NO_PAD.encode(cursor));
 	let children = nest(trees.iter().filter(|t| !is_next_page(t)).filter_map(|t| item(t, post_id)).collect());
 	let mut result = listing(children);
 	result["data"]["after"] = after.into();
+	result["data"]["after_count"] = next_page.and_then(|t| t["more"]["count"].as_i64()).into();
 	Ok(result)
 }
 
@@ -159,6 +157,20 @@ fn focused_branch(comments: &[Value], id: &str) -> Option<(usize, Value)> {
 
 fn listing(children: Vec<Value>) -> Value {
 	json_value!({ "kind": "Listing", "data": { "children": children } })
+}
+
+/// Reddit's JSON lists the rest of a thread as a trailing top-level "more" stub,
+/// which is what API clients look for. Redlib's own pages use `after` instead.
+pub(crate) fn with_next_page_stub(mut thread: Value) -> Value {
+	let comments = &mut thread[1]["data"];
+	if let Some(cursor) = comments["after"].as_str().map(str::to_owned) {
+		let parent = thread[0]["data"]["children"][0]["data"]["name"].as_str().unwrap_or_default().to_owned();
+		let count = thread[1]["data"]["after_count"].as_i64().unwrap_or_default();
+		if let Some(children) = thread[1]["data"]["children"].as_array_mut() {
+			children.push(json_value!({ "kind": "more", "data": { "id": cursor, "name": cursor, "count": count, "parent_id": parent, "depth": 0, "children": [] } }));
+		}
+	}
+	thread
 }
 
 pub(crate) fn parse_path(path: &str) -> Option<(String, Option<String>)> {
@@ -211,7 +223,12 @@ fn item(tree: &Value, post_id: &str) -> Option<(u64, Value)> {
 	if !more.is_null() {
 		let count = more["count"].as_i64().unwrap_or_default();
 		let cursor = more["cursor"].as_str().map(|c| URL_SAFE_NO_PAD.encode(c)).unwrap_or_default();
-		return Some((depth, json_value!({ "kind": "more", "data": { "id": cursor, "count": count, "parent_id": parent } })));
+		// Reddit's "more" stub, with the continuation cursor as its id instead of
+		// child ids (Reddit's anonymous API no longer serves /api/morechildren).
+		return Some((
+			depth,
+			json_value!({ "kind": "more", "data": { "id": cursor, "name": cursor, "count": count, "parent_id": parent, "depth": depth, "children": [] } }),
+		));
 	}
 
 	let node = &tree["node"];
@@ -263,6 +280,7 @@ fn item(tree: &Value, post_id: &str) -> Option<(u64, Value)> {
 			"data": {
 				"id": fullname.strip_prefix("t1_").unwrap_or(fullname),
 				"name": fullname,
+				"depth": depth,
 				"author": author,
 				"body": body,
 				"body_html": format!("<div class=\"md\">{body_html}</div>"),
@@ -631,5 +649,29 @@ mod tests {
 
 		assert_eq!(comments[1]["data"]["replies"], "");
 		assert_eq!(comments[2]["kind"], "more");
+
+		// Reddit's fields, which API clients such as Stealth require
+		assert_eq!(a["depth"], 0);
+		let more = &replies[1]["data"];
+		assert_eq!(more["id"], URL_SAFE_NO_PAD.encode("c1"));
+		assert_eq!(more["name"], more["id"]);
+		assert_eq!(more["depth"], 1);
+		assert_eq!(more["children"], json_value!([]));
+	}
+
+	#[test]
+	fn next_page_becomes_a_trailing_more_stub() {
+		let post = json_value!({ "data": { "children": [{ "data": { "name": "t3_p" } }] } });
+		let comments = json_value!({ "kind": "Listing", "data": { "children": [{ "kind": "t1", "data": { "id": "a" } }], "after": "YzI", "after_count": 90 } });
+		let thread = with_next_page_stub(json_value!([post.clone(), comments]));
+		let children = thread[1]["data"]["children"].as_array().unwrap();
+		assert_eq!(children.len(), 2);
+		assert_eq!(
+			children[1],
+			json_value!({ "kind": "more", "data": { "id": "YzI", "name": "YzI", "count": 90, "parent_id": "t3_p", "depth": 0, "children": [] } })
+		);
+
+		let last_page = json_value!([post, { "kind": "Listing", "data": { "children": [], "after": null } }]);
+		assert_eq!(with_next_page_stub(last_page.clone()), last_page);
 	}
 }

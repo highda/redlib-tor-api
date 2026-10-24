@@ -60,6 +60,13 @@ Path segments in `{}`; `?` marks optional ones.
 ### Post: `/r/{sub}/comments/{id}/{slug}?/{comment_id}?`
 - `sort`: `confidence` (default; `best` is mapped to it), `top`, `new`, `controversial`, `old`, `qa`, `random`. Cookie `default_comment_sort` is honoured.
 - `context`: integer, forwarded. `limit` is accepted and ignored (Teddit ignores it too).
+- `cursor` (extension): continues the thread from a "more" stub. Reddit no longer serves
+  `/api/morechildren` or the comments JSON to anonymous clients, so threads come from its
+  GraphQL API, and a stub's `id` is a continuation cursor instead of a comment id (its
+  `children` is empty). A stub under the post: request the post with `cursor=<id>` for the
+  next top-level comments. A stub under comment `X`: request `/comments/{id}/_/{X}` with
+  `cursor=<id>` for the rest of X's replies, as top-level children. Both answers end with
+  another stub while more remain. Up to 200 comments per answer.
 - Reddit: same path + `.json`. JSON: Teddit post object (`title`, `author`, `selftext`, `media`, `images`, `gallery_items`, `crosspost`, `comments: [comment…]` with nested `replies` and `load_more` stubs). RSS: the post plus one `<item>` per top-level comment.
 
 ### Post by id: `/comments/{id}/{slug}?/{comment_id}?`
@@ -71,6 +78,11 @@ Path segments in `{}`; `?` marks optional ones.
 - Reddit: `/user/{user}/about.json` then `/user/{user}/{kind|overview}.json?limit=26`.
 - `target=reddit`: `{ about: <Reddit about>, overview: <Reddit listing> }` (what Stealth reads).
 - JSON: `{ username, icon_img, created, verified, link_karma, comment_karma, view_more_posts, user_front, post_type, before, after, posts }`. RSS: up to 25 items.
+
+### User search: `/users/search` (extension, `target=reddit` only)
+- `q` (required), `nsfw` (`on`/`off` → Reddit `include_over_18`), `after`, `before`, `limit`.
+- Reddit: `/users/search.json`, returned as is. Without `target=reddit`: 404 (Teddit has no
+  user search and so no format for it).
 
 ### Subreddit discovery: `/subreddits/{sort}?`
 - `sort`: none, `popular`, `new`, `default`, or `search` (needs `q`; `nsfw=on` includes NSFW).
@@ -142,4 +154,5 @@ All errors are JSON `{ "error": "<message>", "status": <code> }` with that HTTP 
 | `target=reddit` media URLs point at Reddit's CDNs. | Point at `/media/` (unless `RAW_MEDIA_PROXY=off`); CMAF videos get a `cmaf/DASH_*` alias. | Full proxying; sound in DASH-only clients. |
 | `limit` ignored on listings. | Forwarded on front page, subreddit and search. | Harmless extension; Teddit's processors handle any length. |
 | Sets preference cookies when overrides are passed. | No cookies set. | Shares the domain with Redlib. |
-| Morechildren (`POST`), wiki, saved, subscriptions, gallery/poll pages. | Not provided. | Not part of Teddit's API. |
+| Morechildren (`POST`), wiki, saved, subscriptions, gallery/poll pages. | Not provided; `cursor` on post routes continues threads instead. | Not part of Teddit's API; Reddit blocks `/api/morechildren` for anonymous clients. |
+| No user search. | `/users/search` with `target=reddit`. | Clients like Stealth search users. |

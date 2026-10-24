@@ -141,6 +141,8 @@ export async function handleApi(url, cookies, { teddit, redlib }) {
     await post(ctx, `/comments/${b}`, c, d);
   } else if ((a === 'u' || a === 'user') && (n === 2 || n === 3)) {
     await user(ctx, b, c);
+  } else if (a === 'users' && b === 'search' && n === 2) {
+    await usersSearch(ctx);
   } else if (a === 'subreddits' && n <= 2) {
     await subredditsExplore(ctx, b || '');
   } else if (a === 'search' && n === 1) {
@@ -262,6 +264,8 @@ async function post(ctx, base, snippet, comment_id) {
   const json = await redlib.json(`${path}.json`, {
     sort: sortby,
     context: Number.isNaN(context) ? undefined : context,
+    // Continues a thread from a "more" stub, whose id is the cursor (extension, see API_SURFACE.md)
+    cursor: query.cursor || undefined,
     raw_json,
   });
   await teddit.handlePost(json, req, res, 'from_online', type, target);
@@ -286,6 +290,22 @@ async function subredditsExplore(ctx, sortby) {
     });
   }
   await teddit.handleSubredditsExplore(json, req, res, 'from_online', type, target, query.q);
+}
+
+// Not in Teddit: /users/search, Reddit's user search. Only as Reddit's JSON (target=reddit).
+async function usersSearch(ctx) {
+  const { query, res, target, raw_json, redlib } = ctx;
+  if (target !== 'reddit') throw new UpstreamError(404, 'User search is only available with target=reddit');
+  if (query.q === undefined || query.q === '') throw new BadRequest('Missing q');
+  const json = await redlib.json('/users/search.json', {
+    q: query.q,
+    include_over_18: query.nsfw === 'on' ? 'on' : 'off',
+    ...cursor(query.after, query.before),
+    limit: query.limit,
+    raw_json,
+  });
+  res.setHeader('Content-Type', 'application/json');
+  res.end(JSON.stringify(json));
 }
 
 // routes/user.js: /u/:user/:kind?  (Teddit's /user/ redirect drops `api`; we serve both)
