@@ -1141,8 +1141,9 @@ static REDDIT_PREVIEW_ANCHOR_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 	Regex::new(r#"(?s)<p><a href="(https?://(?:external-preview|preview|i)\.(?:redd\.it|redditdotzhmh3mao6r5i2j7speppwqkizwo7vksy3mbz5iz7rlhocyd\.onion)[^"]*)">(.*?)</a></p>"#)
 		.unwrap()
 });
-static REDDIT_EMOJI_REGEX: LazyLock<Regex> =
-	LazyLock::new(|| Regex::new(r"https?://(?:www\.)?(?:redditstatic\.com|reddittic34i5gtjcnm2fb7fv2eyop4vbxquuc36prnbs7d2kp3saoqd\.onion)/(.*)").unwrap());
+static REDDIT_EMOJI_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+	Regex::new(r#"https?://(?:www\.)?(?:redditstatic\.com|reddittic34i5gtjcnm2fb7fv2eyop4vbxquuc36prnbs7d2kp3saoqd\.onion)/[^\s"'<>]*"#).unwrap()
+});
 
 /// Rewrite Reddit links to Redlib in body of text
 pub fn rewrite_urls(input_text: &str) -> String {
@@ -1151,15 +1152,9 @@ pub fn rewrite_urls(input_text: &str) -> String {
 		REDDIT_REGEX.replace_all(input_text, r#"href="/"#).to_string();
 	text1 = reddit_urls::to_clearnet_url(&text1);
 
-	loop {
-		if REDDIT_EMOJI_REGEX.find(&text1).is_none() {
-			break;
-		} else {
-			text1 = REDDIT_EMOJI_REGEX
-				.replace_all(&text1, format_url(REDDIT_EMOJI_REGEX.find(&text1).map(|x| x.as_str()).unwrap_or_default()))
-				.to_string()
-		}
-	}
+	text1 = REDDIT_EMOJI_REGEX
+		.replace_all(&text1, |captures: &regex::Captures<'_>| format_url(&captures[0]))
+		.to_string();
 
 	// Remove (html-encoded) "\" from URLs.
 	text1 = text1.replace("%5C", "").replace("\\_", "_");
@@ -1613,6 +1608,14 @@ mod tests {
 	fn test_rewriting_emoji() {
 		let input = r#"<div class="md"><p>How can you have such hard feelings towards a license? <img src="https://www.redditstatic.com/marketplace-assets/v1/core/emotes/snoomoji_emotes/free_emotes_pack/shrug.gif" width="20" height="20" style="vertical-align:middle"> Let people use what license they want, and BSD is one of the least restrictive ones AFAIK.</p>"#;
 		let output = r#"<div class="md"><p>How can you have such hard feelings towards a license? <img src="/static/marketplace-assets/v1/core/emotes/snoomoji_emotes/free_emotes_pack/shrug.gif" width="20" height="20" style="vertical-align:middle"> Let people use what license they want, and BSD is one of the least restrictive ones AFAIK.</p>"#;
+		assert_eq!(rewrite_urls(input), output);
+	}
+
+	#[test]
+	fn test_rewriting_multiple_static_urls_without_matching_other_hosts() {
+		let input = "<p>a <a href=\"https://www.redditstatic.com/one.png\">one</a> tail-A</p>\n<p>b <a href=\"https://www.redditstatic.com/two.png\">two</a> tail-B</p>\n<p>typo link https://xredditstatic.com/foo here</p>";
+		let output =
+			"<p>a <a href=\"/static/one.png\">one</a> tail-A</p>\n<p>b <a href=\"/static/two.png\">two</a> tail-B</p>\n<p>typo link https://xredditstatic.com/foo here</p>";
 		assert_eq!(rewrite_urls(input), output);
 	}
 
