@@ -20,6 +20,9 @@ pub(crate) const SHORT_REDDIT_HOST: &str = "redd.it";
 pub(crate) const SHORT_REDDIT_ONION_BASE: &str = "https://redditdotzhmh3mao6r5i2j7speppwqkizwo7vksy3mbz5iz7rlhocyd.onion";
 pub(crate) const SHORT_REDDIT_ONION_HOST: &str = "redditdotzhmh3mao6r5i2j7speppwqkizwo7vksy3mbz5iz7rlhocyd.onion";
 
+pub(crate) const GQL_REDDIT_URL: &str = "https://gql-fed.reddit.com/";
+pub(crate) const GQL_REDDIT_ONION_URL: &str = "https://gql-fed.reddittorjg6rue252oqsxryoxengawnmo46qy4kyii5wtqnwfj4ooad.onion/";
+
 pub(crate) fn use_reddit_onion() -> bool {
 	matches!(config::get_setting("REDLIB_USE_REDDIT_ONION").as_deref(), Some("on" | "true" | "1" | "yes"))
 }
@@ -29,6 +32,14 @@ pub(crate) fn oauth_base() -> (&'static str, &'static str) {
 		(OAUTH_REDDIT_ONION_BASE, OAUTH_REDDIT_ONION_HOST)
 	} else {
 		(OAUTH_REDDIT_BASE, OAUTH_REDDIT_HOST)
+	}
+}
+
+pub(crate) fn gql_url() -> &'static str {
+	if use_reddit_onion() {
+		GQL_REDDIT_ONION_URL
+	} else {
+		GQL_REDDIT_URL
 	}
 }
 

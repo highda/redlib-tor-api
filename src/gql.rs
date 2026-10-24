@@ -6,6 +6,7 @@
 //! The RTJSON renderer and comment conversion retain that implementation's design.
 
 use crate::client::{json, CLIENT, OAUTH_CLIENT};
+use crate::reddit_urls;
 use crate::utils::{format_url, param};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use cached::proc_macro::cached;
@@ -13,7 +14,6 @@ use chrono::DateTime;
 use serde_json::{json as json_value, Value};
 use std::time::Duration;
 
-const GQL_URL: &str = "https://gql-fed.reddit.com/";
 // Android PostComments persisted operation; raw GraphQL queries are rejected.
 // https://github.com/Amqx/reddit-gql/blob/main/src/operations.ts
 const POST_COMMENTS_HASH: &str = "314f29c2494fd78c7844ef2c6b09acb4bef5b37ab50b4ddc01691d6d5c8433f8";
@@ -97,7 +97,7 @@ fn variables(id: &str, comment_id: Option<&str>, path: &str, sort: &str) -> Resu
 
 async fn query(body: &Value) -> Result<Value, String> {
 	for attempt in 0..2 {
-		let mut builder = CLIENT.post(GQL_URL).timeout(Duration::from_secs(20));
+		let mut builder = CLIENT.post(reddit_urls::gql_url()).timeout(Duration::from_secs(20));
 		for (key, value) in &OAUTH_CLIENT.load_full().headers_map {
 			if !key.eq_ignore_ascii_case("content-type") {
 				builder = builder.header(key, value);
