@@ -17,6 +17,18 @@ use tokio::time::{error::Elapsed, timeout};
 const REDDIT_ANDROID_OAUTH_CLIENT_ID: &str = "ohXpoqrZYub1kg";
 
 const OAUTH_TIMEOUT: Duration = Duration::from_secs(5);
+const OAUTH_ONION_TIMEOUT: Duration = Duration::from_secs(90);
+const OAUTH_RETRY_DELAY: Duration = Duration::from_secs(5);
+
+fn authentication_timeout(use_reddit_onion: bool) -> Duration {
+	if use_reddit_onion {
+		// Establishing a cold onion circuit can take longer than the direct
+		// request budget. Keep retries short independently of this allowance.
+		OAUTH_ONION_TIMEOUT
+	} else {
+		OAUTH_TIMEOUT
+	}
+}
 
 // Response from OAuth backend authentication
 #[derive(Debug, Clone)]
@@ -114,12 +126,12 @@ impl Oauth {
 				std::process::exit(1);
 			}
 
-			tokio::time::sleep(OAUTH_TIMEOUT).await;
+			tokio::time::sleep(OAUTH_RETRY_DELAY).await;
 		}
 	}
 
 	async fn new_with_timeout_with_backend(mut backend: OauthBackendImpl) -> Result<Result<Self, AuthError>, Elapsed> {
-		timeout(OAUTH_TIMEOUT, async move {
+		timeout(authentication_timeout(reddit_urls::use_reddit_onion()), async move {
 			let response = backend.authenticate().await?;
 
 			// Build headers_map from backend headers + Authorization header
@@ -547,6 +559,13 @@ fn choose<T: Copy>(list: &[T]) -> T {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn onion_authentication_has_time_to_establish_a_circuit_without_delaying_retries() {
+		assert_eq!(authentication_timeout(true), Duration::from_secs(90));
+		assert_eq!(authentication_timeout(false), Duration::from_secs(5));
+		assert_eq!(OAUTH_RETRY_DELAY, Duration::from_secs(5));
+	}
 
 	#[tokio::test(flavor = "multi_thread")]
 	async fn test_mobile_spoof_backend() {
