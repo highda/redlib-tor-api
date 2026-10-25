@@ -251,6 +251,7 @@ pub async fn force_refresh_token() -> bool {
 		trace!("Skipping refresh token roll over, already in progress");
 		return true;
 	}
+	let _rolling_over = RollingOver;
 
 	trace!("Rolling over refresh token. Current rate limit: {}", OAUTH_RATELIMIT_REMAINING.load(Ordering::SeqCst));
 	let refreshed = match Oauth::try_refresh().await {
@@ -273,8 +274,19 @@ pub async fn force_refresh_token() -> bool {
 			false
 		}
 	};
-	OAUTH_IS_ROLLING_OVER.store(false, Ordering::SeqCst);
 	refreshed
+}
+
+/// Clears [`OAUTH_IS_ROLLING_OVER`] however the refresh ends. A refresh awaited
+/// by a request handler is dropped when the client disconnects; if the flag
+/// stayed set, every later refresh was skipped and reported success while the
+/// token expired.
+struct RollingOver;
+
+impl Drop for RollingOver {
+	fn drop(&mut self) {
+		OAUTH_IS_ROLLING_OVER.store(false, Ordering::SeqCst);
+	}
 }
 
 #[derive(Debug, Clone, Default)]
@@ -565,6 +577,16 @@ mod tests {
 		assert_eq!(authentication_timeout(true), Duration::from_secs(90));
 		assert_eq!(authentication_timeout(false), Duration::from_secs(5));
 		assert_eq!(OAUTH_RETRY_DELAY, Duration::from_secs(5));
+	}
+
+	#[tokio::test(flavor = "multi_thread")]
+	async fn an_abandoned_refresh_does_not_block_later_ones() {
+		let mut refresh = Box::pin(force_refresh_token());
+		assert!(futures_lite::future::poll_once(&mut refresh).await.is_none(), "refresh should wait on the network");
+		assert!(OAUTH_IS_ROLLING_OVER.load(Ordering::SeqCst));
+		// What hyper does to a handler's future when the client disconnects
+		drop(refresh);
+		assert!(!OAUTH_IS_ROLLING_OVER.load(Ordering::SeqCst));
 	}
 
 	#[tokio::test(flavor = "multi_thread")]

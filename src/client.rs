@@ -489,7 +489,7 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 								// OAuth token has expired; http status 401
 								if json["message"] == "Unauthorized" {
 									error!("Forcing a token refresh");
-									force_refresh_token().await;
+									tokio::spawn(force_refresh_token());
 									return Err("OAuth token has expired. Please refresh the page!".to_string());
 								}
 
