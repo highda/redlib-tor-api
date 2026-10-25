@@ -5,14 +5,6 @@
 # - rg
 # - jq
 
-APKMIRROR_PAGES="${APKMIRROR_PAGES:-5}"
-APKMIRROR_DELAY_SECONDS="${APKMIRROR_DELAY_SECONDS:-5}"
-APKMIRROR_USER_AGENT="${APKMIRROR_USER_AGENT:-Mozilla/5.0 (X11; Linux x86_64; rv:147.0) Gecko/20100101 Firefox/147.0}"
-
-fetch_apkmirror() {
-  curl -fsSL -H "User-Agent: ${APKMIRROR_USER_AGENT}" "$1"
-}
-
 # Fetch iOS app versions
 ios_version_list=$(curl -s "https://ipaarchive.com/app/usa/1064216828" | rg "(20\d{2}\.\d+.\d+) / (\d+)" --only-matching -r "Version \$1/Build \$2" | sort | uniq)
 
@@ -46,43 +38,50 @@ done
 # Close the array in the source file
 echo "];" >> "$filename"
 
-# Fetch Android app versions from APKMirror.
-versions=""
-for page in $(seq 1 "$APKMIRROR_PAGES"); do
-  if [ "$page" = "1" ]; then
-    url="https://www.apkmirror.com/uploads/?devcategory=redditinc"
-  else
-    url="https://www.apkmirror.com/uploads/page/${page}/?devcategory=redditinc"
-  fi
-  page_versions=$(fetch_apkmirror "$url" | rg 'href="(/apk/redditinc/reddit/reddit-[0-9]+-[0-9]+-[0-9]+-release/)"' -o -r "https://www.apkmirror.com\$1")
-  versions+="${page_versions}"
-  versions+=$'\n'
+# Fetch Android app versions from APKMirror. Each APK download page also lists
+# the versions (with build numbers) released around it, so only releases whose
+# version hasn't been seen yet are fetched.
+ua="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
+apkmirror="https://www.apkmirror.com"
+releases=""
+for page in "" "page/2/" "page/3/"; do
+  releases+=$(curl -s -A "$ua" "$apkmirror/apk/redditinc/reddit/$page" | rg -o '/apk/redditinc/reddit/reddit-20\d{2}-\d+-\d+-release/' | uniq)
+  releases+=$'\n'
+  sleep 1
 done
-versions=$(echo "$versions" | sort -u | sed '/^$/d')
+
+versions=""
+while IFS= read -r release; do
+  [ -z "$release" ] && continue
+  # reddit-2026-42-0-release -> 2026.42.0
+  version=$(echo "$release" | rg -o 'reddit-(20\d{2})-(\d+)-(\d+)-release' -r '$1.$2.$3')
+  echo "$versions" | rg -qF "Version $version/" && continue
+
+  download=$(curl -s -A "$ua" "$apkmirror$release" | rg -o "$release[^\"]*-android-apk-download/" | head -n1)
+  sleep 1
+  [ -z "$download" ] && continue
+  found=$(curl -s -A "$ua" "$apkmirror$download" | sed 's/<[^>]*>/ /g' | rg -o 'Version: *(20\d{2}\.\d+\.\d+) *\((\d+)\)' -r 'Version $1/Build $2')
+  sleep 1
+  versions+="$found"$'\n'
+  echo -e "Fetched \e[32m$(echo "$found" | wc -l) versions\e[0m around $version."
+done <<< "$releases"
+
+versions=$(echo "$versions" | rg . | sort -u -V -r)
+if [ -z "$versions" ]; then
+  echo "Failed to fetch Android app versions, restore $filename with git" >&2
+  exit 1
+fi
 
 # Count the number of lines in the version list
 android_count=$(echo "$versions" | wc -l)
 
-echo -e "Fetching \e[32m$android_count Android app versions...\e[0m"
+echo -e "Fetched \e[32m$android_count Android app versions.\e[0m"
 
 # Append to the source file
 echo "pub const ANDROID_APP_VERSION_LIST: &[&str; $android_count] = &[" >> "$filename"
 
-num=0
-
-# For each in versions, curl the page and extract the build number
 echo "$versions" | while IFS= read -r line; do
-  num=$((num+1))
-  fetch_page=$(fetch_apkmirror "$line")
-  build=$(echo "$fetch_page" | rg 'class="colorLightBlack">([0-9]+)</span>' -o -r "\$1" | head -n1)
-  version=$(echo "$line" | rg 'reddit-([0-9]+-[0-9]+-[0-9]+)-release' -o -r "\$1" | sed 's/-/./g')
-  if [ -z "$build" ] || [ -z "$version" ]; then
-    echo -e "[$num/$android_count] Skipping \e[33m$line\e[0m; version or build not found."
-    continue
-  fi
-  echo "	\"Version $version/Build $build\"," >> "$filename"
-  echo -e "[$num/$android_count] Fetched \e[32mVersion $version/Build $build\e[0m."
-  sleep "$APKMIRROR_DELAY_SECONDS"
+  echo "	\"$line\"," >> "$filename"
 done
 
 # Close the array in the source file
