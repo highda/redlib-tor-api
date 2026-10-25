@@ -140,7 +140,7 @@ fn describe_age(secs: u64) -> String {
 /// Errors from `client::json` that mean "Reddit didn't answer properly right
 /// now", as opposed to a real answer about the content.
 pub fn is_transient(err: &str) -> bool {
-	const TRANSIENT: [&str; 11] = [
+	const TRANSIENT: [&str; 12] = [
 		"Reddit rate limit exceeded",
 		"Couldn't send request to Reddit",
 		"Failed to parse page JSON data",
@@ -152,6 +152,7 @@ pub fn is_transient(err: &str) -> bool {
 		"Reddit comments request",
 		"Reddit returned an invalid comments response",
 		"Reddit comments API error",
+		crate::client::OAUTH_NOT_READY,
 	];
 	TRANSIENT.iter().any(|t| err.starts_with(t))
 }

@@ -130,6 +130,17 @@ impl Oauth {
 		}
 	}
 
+	/// A stand-in until the first token arrives: the default backend's headers
+	/// and user agent (media requests use it), no Authorization.
+	pub(crate) fn pending() -> Self {
+		let backend = OauthBackendImpl::MobileSpoof(MobileSpoofAuth::new());
+		Self {
+			headers_map: backend.get_headers(),
+			expires_in: 0,
+			backend,
+		}
+	}
+
 	async fn new_with_timeout_with_backend(mut backend: OauthBackendImpl) -> Result<Result<Self, AuthError>, Elapsed> {
 		timeout(authentication_timeout(reddit_urls::use_reddit_onion()), async move {
 			let response = backend.authenticate().await?;
@@ -617,6 +628,7 @@ mod tests {
 
 	#[tokio::test(flavor = "multi_thread")]
 	async fn test_oauth_client() {
+		crate::client::init_oauth_client().await;
 		// Integration test - tests the overall Oauth client
 		assert!(OAUTH_CLIENT.load_full().headers_map.contains_key("Authorization"));
 	}
@@ -628,6 +640,7 @@ mod tests {
 
 	#[tokio::test(flavor = "multi_thread")]
 	async fn test_oauth_token_exists() {
+		crate::client::init_oauth_client().await;
 		let client = OAUTH_CLIENT.load_full();
 		let auth_header = client.headers_map.get("Authorization").unwrap();
 		assert!(auth_header.starts_with("Bearer "));
@@ -635,6 +648,7 @@ mod tests {
 
 	#[tokio::test(flavor = "multi_thread")]
 	async fn test_oauth_headers_len() {
+		crate::client::init_oauth_client().await;
 		assert!(OAUTH_CLIENT.load_full().headers_map.len() >= 3);
 	}
 

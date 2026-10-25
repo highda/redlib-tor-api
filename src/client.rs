@@ -6,7 +6,6 @@ use crate::stale;
 use crate::utils::{format_url, Post};
 use arc_swap::ArcSwap;
 use cached::proc_macro::cached;
-use futures_lite::future::block_on;
 use futures_lite::{future::Boxed, FutureExt};
 use hyper::{header, Body, Request as HyperRequest, Response as HyperResponse};
 use log::{error, info, trace, warn};
@@ -18,6 +17,7 @@ use std::sync::atomic::Ordering;
 use std::sync::atomic::{AtomicBool, AtomicU16};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
+use tokio::sync::OnceCell;
 use wreq::dns::{Addrs, Name, Resolve, Resolving};
 use wreq::redirect::Policy;
 use wreq::{header as wreq_header, Client as WreqClient, Method, Response as WreqResponse};
@@ -25,11 +25,39 @@ use wreq_util::{Emulation, Platform, Profile};
 
 pub static CLIENT: LazyLock<WreqClient> = LazyLock::new(build_client);
 
-pub static OAUTH_CLIENT: LazyLock<ArcSwap<Oauth>> = LazyLock::new(|| {
-	let client = block_on(Oauth::new());
-	tokio::spawn(token_daemon());
-	ArcSwap::new(client.into())
-});
+/// Holds a placeholder without a token until [`init_oauth_client`] is done.
+/// The first token used to be fetched with a nested `block_on` before the
+/// server listened, which kept the port closed for as long as Reddit's onion
+/// took to answer (up to ~16 min before giving up).
+pub static OAUTH_CLIENT: LazyLock<ArcSwap<Oauth>> = LazyLock::new(|| ArcSwap::new(Oauth::pending().into()));
+
+static OAUTH_BOOTSTRAP: OnceCell<()> = OnceCell::const_new();
+
+/// Fetches the first token and starts the refresh daemon. Main spawns it, so
+/// the server listens meanwhile; concurrent calls share the first one.
+pub async fn init_oauth_client() {
+	OAUTH_BOOTSTRAP
+		.get_or_init(|| async {
+			OAUTH_CLIENT.store(Oauth::new().await.into());
+			tokio::spawn(token_daemon());
+		})
+		.await;
+}
+
+/// Requests to Reddit fail with this until the first token is there.
+pub async fn oauth_ready() -> Result<(), String> {
+	if OAUTH_BOOTSTRAP.initialized() {
+		return Ok(());
+	}
+	// Unit tests have no main to start the bootstrap.
+	if cfg!(test) {
+		init_oauth_client().await;
+		return Ok(());
+	}
+	Err(OAUTH_NOT_READY.to_string())
+}
+
+pub const OAUTH_NOT_READY: &str = "Redlib is still connecting to Reddit. Try again in a minute.";
 
 pub static OAUTH_RATELIMIT_REMAINING: AtomicU16 = AtomicU16::new(99);
 
@@ -301,6 +329,7 @@ fn request(method: &'static Method, path: String, redirects: Option<u8>, quarant
 	}
 
 	async move {
+		oauth_ready().await?;
 		match builder.send().await {
 			Ok(response) => {
 				// Reddit may respond with a 3xx. Decide whether or not to

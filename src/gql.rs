@@ -5,7 +5,7 @@
 //! https://github.com/polak14/redlib/commit/a63460b4ac29c27401e3e2aaab34b68dca02991e
 //! The RTJSON renderer and comment conversion retain that implementation's design.
 
-use crate::client::{json, CLIENT, OAUTH_CLIENT};
+use crate::client::{json, oauth_ready, CLIENT, OAUTH_CLIENT};
 use crate::oauth::force_refresh_token;
 use crate::reddit_urls;
 use crate::stale;
@@ -113,6 +113,7 @@ fn variables(id: &str, comment_id: Option<&str>, path: &str, sort: &str) -> Resu
 }
 
 async fn query(body: &Value) -> Result<Value, String> {
+	oauth_ready().await?;
 	for attempt in 0..2 {
 		let mut builder = CLIENT.post(reddit_urls::gql_url()).timeout(Duration::from_secs(20));
 		for (key, value) in &OAUTH_CLIENT.load_full().headers_map {

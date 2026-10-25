@@ -9,12 +9,11 @@ use std::sync::LazyLock;
 use futures_lite::FutureExt;
 use hyper::{header::HeaderValue, Body, Request, Response};
 use log::{info, warn};
-use redlib::client::{canonical_path, proxy, rate_limit_check, CLIENT};
+use redlib::client::{canonical_path, init_oauth_client, proxy, CLIENT};
 use redlib::server::{self, RequestExt};
 use redlib::utils::{error, redirect, ThemeAssets};
 use redlib::{config, duplicates, fingerprint, headers, instance_info, post, search, settings, subreddit, user};
 
-use redlib::client::OAUTH_CLIENT;
 
 // Create Services
 
@@ -157,20 +156,6 @@ async fn main() {
 		)
 		.get_matches();
 
-	match rate_limit_check().await {
-		Ok(()) => {
-			info!("[✅] Rate limit check passed");
-		}
-		Err(e) => {
-			let mut message = format!("Rate limit check failed: {e}");
-			message += "\nThis may cause issues with the rate limit.";
-			message += "\nPlease report this error with the above information.";
-			message += "\nhttps://github.com/redlib-org/redlib/issues/new?assignees=sigaloid&labels=bug&title=%F0%9F%90%9B+Bug+Report%3A+Rate+limit+mismatch";
-			warn!("{}", message);
-			eprintln!("{message}");
-		}
-	}
-
 	let address = matches.get_one::<String>("address").unwrap();
 	let port = matches.get_one::<String>("port").unwrap();
 	let hsts = matches.get_one("hsts").map(|m: &String| m.as_str());
@@ -193,16 +178,16 @@ async fn main() {
 
 	// Force evaluation of statics. In instance_info case, we need to evaluate
 	// the timestamp so deploy date is accurate - in config case, we need to
-	// evaluate the configuration to avoid paying penalty at first request -
-	// in OAUTH case, we need to retrieve the token to avoid paying penalty
-	// at first request
+	// evaluate the configuration to avoid paying penalty at first request.
+	// The OAuth token is fetched in the background; until it is there,
+	// requests to Reddit fail with client::OAUTH_NOT_READY.
 
 	info!("Evaluating config.");
 	LazyLock::force(&config::CONFIG);
 	info!("Evaluating instance info.");
 	LazyLock::force(&instance_info::INSTANCE_INFO);
-	info!("Creating OAUTH client.");
-	LazyLock::force(&OAUTH_CLIENT);
+	info!("Creating OAUTH client in the background.");
+	tokio::spawn(init_oauth_client());
 	fingerprint::start_ua_version_refresh();
 
 	// Define default headers (added to all responses)
