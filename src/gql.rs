@@ -5,7 +5,7 @@
 //! https://github.com/polak14/redlib/commit/a63460b4ac29c27401e3e2aaab34b68dca02991e
 //! The RTJSON renderer and comment conversion retain that implementation's design.
 
-use crate::client::{json, oauth_ready, CLIENT, OAUTH_CLIENT};
+use crate::client::{coalesce, json, oauth_ready, CLIENT, OAUTH_CLIENT};
 use crate::oauth::force_refresh_token;
 use crate::reddit_urls;
 use crate::stale;
@@ -70,9 +70,13 @@ fn stale_key(path: &str, quarantine: bool) -> String {
 	stale::key(&format!("gql:{path}"), quarantine)
 }
 
-/// Fetch metadata first, so missing/private/quarantined posts retain their API errors.
+/// Missing/private/quarantined posts retain their API errors.
 #[cached(size = 100, time = 30, result = true)]
 async fn thread_fresh(path: String, quarantine: bool) -> Result<Value, String> {
+	coalesce(stale_key(&path, quarantine), fetch_thread(path, quarantine)).await
+}
+
+async fn fetch_thread(path: String, quarantine: bool) -> Result<Value, String> {
 	let (id, comment_id) = parse_path(&path).ok_or("Invalid post path")?;
 	let post_path = format!("/by_id/t3_{id}.json?raw_json=1");
 	let comments_query = |sort: &str| -> Result<_, String> {

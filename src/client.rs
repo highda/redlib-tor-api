@@ -15,9 +15,11 @@ use std::borrow::Cow;
 use std::result::Result;
 use std::sync::atomic::Ordering;
 use std::sync::atomic::{AtomicBool, AtomicU16};
-use std::sync::{Arc, LazyLock};
+use std::collections::HashMap;
+use std::future::Future;
+use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use std::time::Duration;
-use tokio::sync::OnceCell;
+use tokio::sync::{watch, OnceCell};
 use wreq::dns::{Addrs, Name, Resolve, Resolving};
 use wreq::redirect::Policy;
 use wreq::{header as wreq_header, Client as WreqClient, Method, Response as WreqResponse};
@@ -487,7 +489,58 @@ async fn json_about(path: String, quarantine: bool) -> Result<Value, String> {
 	fetch_json(path, quarantine).await
 }
 
+type Shared = Option<Result<Value, String>>;
+
+static IN_FLIGHT: LazyLock<Mutex<HashMap<String, watch::Receiver<Shared>>>> = LazyLock::new(Default::default);
+
+/// Runs `fetch` once for concurrent callers with the same `key`: the first
+/// caller fetches, the others wait for its result. The caches above only
+/// help after a response has arrived, and onion requests take seconds. If
+/// the first caller is dropped (its client went away), a waiter fetches
+/// itself. Entries are removed when the fetch ends, so the map stays small.
+pub async fn coalesce<F: Future<Output = Result<Value, String>>>(key: String, fetch: F) -> Result<Value, String> {
+	let waiting = {
+		let mut in_flight = IN_FLIGHT.lock().unwrap_or_else(PoisonError::into_inner);
+		match in_flight.get(&key) {
+			Some(receiver) => Err(receiver.clone()),
+			None => {
+				let (sender, receiver) = watch::channel(None);
+				in_flight.insert(key.clone(), receiver);
+				Ok(sender)
+			}
+		}
+	};
+	match waiting {
+		Ok(sender) => {
+			let _entry = InFlight(key);
+			let result = fetch.await;
+			sender.send_replace(Some(result.clone()));
+			result
+		}
+		Err(mut receiver) => {
+			// The guard from wait_for must not be held across fetch.await
+			let shared = receiver.wait_for(Option::is_some).await.ok().and_then(|result| result.clone());
+			match shared {
+				Some(result) => result,
+				None => fetch.await,
+			}
+		}
+	}
+}
+
+struct InFlight(String);
+
+impl Drop for InFlight {
+	fn drop(&mut self) {
+		IN_FLIGHT.lock().unwrap_or_else(PoisonError::into_inner).remove(&self.0);
+	}
+}
+
 async fn fetch_json(path: String, quarantine: bool) -> Result<Value, String> {
+	coalesce(stale::key(&path, quarantine), fetch_json_once(path, quarantine)).await
+}
+
+async fn fetch_json_once(path: String, quarantine: bool) -> Result<Value, String> {
 	// Closure to quickly build errors
 	let err = |msg: &str, e: String, path: String| -> Result<Value, String> {
 		// eprintln!("{} - {}: {}", url, msg, e);
@@ -893,6 +946,31 @@ mod tests {
 		assert!(!credential_rejected(403, None));
 		assert!(!credential_rejected(403, Some("Bearer error=\"insufficient_scope\"")));
 		assert!(!credential_rejected(429, Some("Bearer error=\"invalid_token\"")));
+	}
+
+	#[tokio::test]
+	async fn test_concurrent_identical_requests_share_one_fetch() {
+		let calls = std::sync::atomic::AtomicU32::new(0);
+		let fetch = || async {
+			calls.fetch_add(1, Ordering::SeqCst);
+			tokio::time::sleep(Duration::from_millis(50)).await;
+			Ok(Value::from(1))
+		};
+		let (a, b, c) = tokio::join!(coalesce("k".into(), fetch()), coalesce("k".into(), fetch()), coalesce("other".into(), fetch()));
+		assert_eq!((a, b, c), (Ok(1.into()), Ok(1.into()), Ok(1.into())));
+		assert_eq!(calls.load(Ordering::SeqCst), 2);
+		assert!(!IN_FLIGHT.lock().unwrap().contains_key("k"), "finished fetches leave the map");
+	}
+
+	#[tokio::test]
+	async fn test_a_dropped_first_request_does_not_strand_the_others() {
+		let first = coalesce("dropped".into(), std::future::pending());
+		let mut first = Box::pin(first);
+		assert!(futures_lite::future::poll_once(&mut first).await.is_none());
+		let second = tokio::spawn(coalesce("dropped".into(), async { Ok(Value::from(2)) }));
+		tokio::time::sleep(Duration::from_millis(20)).await;
+		drop(first);
+		assert_eq!(second.await.unwrap(), Ok(2.into()));
 	}
 
 	#[test]
