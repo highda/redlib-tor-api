@@ -45,6 +45,8 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(45);
 const READ_TIMEOUT: Duration = Duration::from_secs(30);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(50);
 const MAX_REDIRECTS: u8 = 5;
+const TRANSPORT_RETRY_WITHIN: Duration = Duration::from_secs(10);
+const TRANSPORT_RETRY_DELAY: Duration = Duration::from_millis(500);
 
 #[derive(Debug)]
 struct RedditDnsResolver;
@@ -457,7 +459,7 @@ async fn json_fresh(path: String, quarantine: bool) -> Result<Value, String> {
 	let token = OAUTH_CLIENT.load_full();
 
 	// Fetch the url...
-	match reddit_get(path.clone(), quarantine).await {
+	match send_with_retry(path.clone(), quarantine).await {
 		Ok(response) => {
 			let status = response.status();
 			// An answer that arrives after a refresh swapped the token speaks for
@@ -566,6 +568,21 @@ async fn json_fresh(path: String, quarantine: bool) -> Result<Value, String> {
 			}
 		}
 		Err(e) => err("Couldn't send request to Reddit", e, path),
+	}
+}
+
+/// `reddit_get`, once more after a transport failure that came quickly (a
+/// circuit that broke, a reset connection). A timeout is not retried: the
+/// caller would give up before a second attempt could finish.
+async fn send_with_retry(path: String, quarantine: bool) -> Result<WreqResponse, String> {
+	let started = std::time::Instant::now();
+	match reddit_get(path.clone(), quarantine).await {
+		Err(e) if started.elapsed() < TRANSPORT_RETRY_WITHIN => {
+			warn!("Couldn't send request to Reddit ({e}), retrying once | {path}");
+			tokio::time::sleep(TRANSPORT_RETRY_DELAY).await;
+			reddit_get(path, quarantine).await
+		}
+		other => other,
 	}
 }
 
