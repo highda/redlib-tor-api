@@ -164,7 +164,9 @@ the limitations below.
   the suffix (Reddit still returns JSON), and the comments JSON is blocked in every form,
   so post pages and `/raw` threads come from Reddit's GraphQL API (`gql-fed` on the same
   onion, upstream PR #603). If Reddit changes the persisted query hash, comments break
-  until `src/gql.rs` is updated.
+  until the new hash is set in `REDLIB_GQL_POST_COMMENTS_HASH` (the `PostComments`
+  entry of [Amqx/reddit-gql](https://github.com/Amqx/reddit-gql/blob/main/src/operations.ts)
+  tracks it) or `src/gql.rs` is updated.
 - Reddit's media onion (i/v/preview.redd.it) can stop answering while the API onion keeps
   working: listings load, every image times out. The examples' Tor healthcheck reports it
   as unhealthy and a Tor restart fixes it; Docker does not restart unhealthy containers by

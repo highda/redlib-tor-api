@@ -55,6 +55,8 @@ services:
       # Optional browser gate for the web UI (never applies to the API or /media/):
       # REDLIB_FINGERPRINTING: "on"
       # REDLIB_FINGERPRINT_SECRET: ${REDLIB_FINGERPRINT_SECRET}
+      # If Reddit rotates the GraphQL hash for comments, the new one (see fork/README.md):
+      # REDLIB_GQL_POST_COMMENTS_HASH: ""
       # Any other REDLIB_* setting from upstream's README works as usual.
     networks: [backend]
 

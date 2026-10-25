@@ -13,13 +13,34 @@ use crate::utils::{format_url, param};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use cached::proc_macro::cached;
 use chrono::DateTime;
-use log::trace;
+use log::{trace, warn};
 use serde_json::{json as json_value, Value};
+use std::sync::LazyLock;
 use std::time::Duration;
 
 // Android PostComments persisted operation; raw GraphQL queries are rejected.
 // https://github.com/Amqx/reddit-gql/blob/main/src/operations.ts
 const POST_COMMENTS_HASH: &str = "314f29c2494fd78c7844ef2c6b09acb4bef5b37ab50b4ddc01691d6d5c8433f8";
+
+/// When Reddit rotates the hash, set REDLIB_GQL_POST_COMMENTS_HASH to the new
+/// one instead of waiting for a release.
+static POST_COMMENTS_HASH_OVERRIDE: LazyLock<Option<String>> = LazyLock::new(|| post_comments_hash_override(std::env::var("REDLIB_GQL_POST_COMMENTS_HASH").ok()));
+
+fn post_comments_hash_override(value: Option<String>) -> Option<String> {
+	let value = value?.trim().to_ascii_lowercase();
+	if value.is_empty() {
+		return None;
+	}
+	if value.len() != 64 || !value.bytes().all(|b| b.is_ascii_hexdigit()) {
+		warn!("Ignoring REDLIB_GQL_POST_COMMENTS_HASH: not a SHA-256 hex digest");
+		return None;
+	}
+	Some(value)
+}
+
+fn post_comments_hash() -> &'static str {
+	POST_COMMENTS_HASH_OVERRIDE.as_deref().unwrap_or(POST_COMMENTS_HASH)
+}
 const COMMENT_COUNT: u32 = 200;
 const MAX_DEPTH: u32 = 10;
 
@@ -47,7 +68,7 @@ async fn thread_fresh(path: String, quarantine: bool) -> Result<Value, String> {
 	let variables = variables(&id, comment_id.as_deref(), &path, &sort)?;
 	let body = json_value!({
 	 "operationName": "PostComments", "variables": variables,
-	 "extensions": { "persistedQuery": { "version": 1, "sha256Hash": POST_COMMENTS_HASH } }
+	 "extensions": { "persistedQuery": { "version": 1, "sha256Hash": post_comments_hash() } }
 	});
 	let response = query(&body).await?;
 	let mut comments = comment_listing(&response, &id)?;
@@ -786,6 +807,16 @@ mod tests {
 		let b = &a["replies"]["data"]["children"][0]["data"];
 		assert_eq!(b["is_submitter"], true);
 		assert_eq!(b["permalink"], "/r/rust/comments/p/title/b/");
+	}
+
+	#[test]
+	fn hash_override_must_be_a_sha256_digest() {
+		let hash = "A".repeat(64);
+		assert_eq!(post_comments_hash_override(Some(format!(" {hash} "))), Some(hash.to_lowercase()));
+		assert_eq!(post_comments_hash_override(Some(String::new())), None);
+		assert_eq!(post_comments_hash_override(Some("abc".into())), None);
+		assert_eq!(post_comments_hash_override(Some("g".repeat(64))), None);
+		assert_eq!(post_comments_hash_override(None), None);
 	}
 
 	#[test]
