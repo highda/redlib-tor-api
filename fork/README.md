@@ -258,7 +258,8 @@ new commit as one commit authored by him, update `YUNYUN_COMMIT`, run `check.sh`
 ## Picked fixes
 
 Fixes taken from other forks and from unmerged upstream pull requests. Each commit keeps its
-author; the line `(cherry picked from commit <sha> in <source>)` names where it came from,
+author; the line `(cherry picked from commit <sha> in <source>)` (or `ported from` for a
+change carried over by hand) names where it came from,
 and `[highda: …]` above it says what was changed to make it fit. Fixes that only matter
 behind a clearnet IP (session cookies, headless browsers) are left out on purpose.
 
@@ -278,6 +279,14 @@ behind a clearnet IP (session cookies, headless browsers) are left out on purpos
 | A failed background token refresh keeps the token and backs off instead of exiting | Mitch Ross | [mitchross/redlib](https://github.com/mitchross/redlib) `494a7c4`, `39aed9f` |
 | Post comments through Reddit's GraphQL API | trqwenyy, polak14 | [redlib-org#603](https://github.com/redlib-org/redlib/pull/603) |
 | Onion authentication gets 90 s to build a circuit | baalajimaestro | [baalajimaestro/redlib](https://git.ptr.moe/baalajimaestro/redlib) `a86b3e0`, `src/oauth.rs` only |
+| A token refresh dropped mid-way (client went away) no longer blocks all later refreshes | Alex | [alexbudisan/redlib](https://github.com/alexbudisan/redlib) `430718f`, refresh guard only |
+| Outbound timeouts (connect 45 s, read 30 s, request 50 s) and at most 5 redirects | Alex | [alexbudisan/redlib](https://github.com/alexbudisan/redlib) `430718f`, onion-sized limits |
+| While Reddit blocks or rate-limits, pages and `/raw` serve the last good copy (up to 12 h, 32 MB) | Mitch Ross | [mitchross/redlib](https://github.com/mitchross/redlib) `86a6b48`, threads from GraphQL included |
+| `/healthz/reddit`: how the last 20 requests to Reddit went, 503 when most failed | Nachtalb | [Nachtalb/redlib](https://github.com/Nachtalb/redlib) `25d5206`, all requests counted |
+| `REDLIB_SOURCE_URL` for the footer's code link | Ruby Iris Juric | [redlib-org#568](https://github.com/redlib-org/redlib/pull/568) |
+| …which the error page's update check also uses, defaulting to this fork | Nachtalb | [Nachtalb/redlib](https://github.com/Nachtalb/redlib) `8de7e5d`, `9dc27ec` |
+| Spoofed Android app versions from APKMirror (2026.33-2026.42), Android 12-16 | polak14 | [polak14/redlib](https://github.com/polak14/redlib) `e19df3b`, script and list only |
+| "More replies" and "More comments" load in place on post pages | Nachtalb | [Nachtalb/redlib](https://github.com/Nachtalb/redlib) `d8958cb`, plus cursor pages |
 
 baalajimaestro's `a86b3e0` also restores comments, by scraping Reddit's Shreddit HTML
 fragments (about 1,000 lines plus the `scraper` crate). This fork uses the GraphQL route
@@ -286,3 +295,26 @@ the live smoke test. If GraphQL breaks, his scraper is the fallback to port.
 
 This fork's own follow-ups: an HTML 404 is reported as not found, GraphQL goes to the
 onion, and `/raw` serves threads through GraphQL.
+
+### Ideas from other forks
+
+Written here from scratch after code in other forks, which those forks could not give as a
+commit to pick (their code is built around a different request pipeline). The commit names
+the source with `(idea from commit <sha> in <repo>)`; small parts taken as they are carry
+`(ported from commit …)` and the author as co-author.
+
+| Change | After | Source |
+|---|---|---|
+| GraphQL failures classified: 401/UNAUTHENTICATED refresh the token, 429 is a rate limit, NOT_FOUND a missing post; only unknown errors are retried | LucifersCircle | [LucifersCircle/redlib](https://github.com/LucifersCircle/redlib) `b1e240c` |
+| Any 401 (or 403 with a Bearer `invalid_token`) and any 429 refresh the token, JSON or not | LucifersCircle | [LucifersCircle/redlib](https://github.com/LucifersCircle/redlib) `ed20ceb` (`credential_rejected`, ported), `472d5c9` |
+| Onion tokens are replaced below 30 requests left; a used-up token waits up to 10 s for its replacement; late answers for a replaced token are ignored | LucifersCircle | [LucifersCircle/redlib](https://github.com/LucifersCircle/redlib) `5532ba6`, `8fc38fb`, `a1d729d`, `7f192ae` |
+| One retry when sending to Reddit fails within 10 s | LucifersCircle | [LucifersCircle/redlib](https://github.com/LucifersCircle/redlib) `22302ac` |
+| The port opens at once; requests say "still connecting" until the first token; no startup rate-limit check | agandhi4, Alex, LucifersCircle | [agandhi4/redlib](https://github.com/agandhi4/redlib) `6e2c8cd`, [alexbudisan/redlib](https://github.com/alexbudisan/redlib) `430718f`, [LucifersCircle/redlib](https://github.com/LucifersCircle/redlib) `7ae000a` |
+| Post and comments fetched at once when the sort is known; one cache entry per thread; about pages cached 15 min; teddit-api fetches a user's about and listing in parallel | LucifersCircle | [LucifersCircle/redlib](https://github.com/LucifersCircle/redlib) `43744d8`, `95f7e72` |
+| Identical requests in flight share one request to Reddit | LucifersCircle | [LucifersCircle/redlib](https://github.com/LucifersCircle/redlib) `472d5c9`, `5d70194` |
+| Reddit failures keep their HTTP status on web pages and `/raw`, with `Retry-After` (passed on by teddit-api) | perennial | [perennialtech/redlib](https://github.com/perennialtech/redlib) `b7502d4` |
+| Deleted comments get their id from the next reply; "[removed]" and "[deleted]" told apart; deleted leaves dropped | LucifersCircle | [LucifersCircle/redlib](https://github.com/LucifersCircle/redlib) `c555033` |
+
+This fork's own, in the same round: `REDLIB_GQL_POST_COMMENTS_HASH` (a new comments hash
+without a release), custom feeds `/u/<user>/m/<feed>` and `sort=random` in the Teddit API,
+and teddit-api logging paths without queries.
