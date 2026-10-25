@@ -106,6 +106,7 @@ async fn fetch_thread(path: String, quarantine: bool) -> Result<Value, String> {
 		}
 	};
 	post["data"]["children"].as_array().and_then(|p| p.first()).ok_or("Post not found")?;
+	crate::reddit_health::record_result(&response);
 	let response = response?;
 	let mut comments = comment_listing(&response, &id)?;
 	if let Some(comment_id) = comment_id {

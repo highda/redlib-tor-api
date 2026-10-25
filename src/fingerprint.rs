@@ -106,7 +106,7 @@ pub fn enabled() -> bool {
 pub fn is_exempt_path(path: &str) -> bool {
 	matches!(
 		path,
-		SCRIPT_PATH | VERIFY_PATH | "/favicon.ico" | "/robots.txt" | "/logo.png" | "/touch-icon-iphone.png" | "/apple-touch-icon.png"
+		SCRIPT_PATH | VERIFY_PATH | "/favicon.ico" | "/robots.txt" | "/logo.png" | "/touch-icon-iphone.png" | "/apple-touch-icon.png" | "/healthz/reddit"
 	) || path.starts_with("/raw/")
 }
 

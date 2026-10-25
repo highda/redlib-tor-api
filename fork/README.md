@@ -171,6 +171,9 @@ the limitations below.
   working: listings load, every image times out. The examples' Tor healthcheck reports it
   as unhealthy and a Tor restart fixes it; Docker does not restart unhealthy containers by
   itself, so pair it with a watchdog.
+- `GET /healthz/reddit` says how the last 20 requests to Reddit went (ok, blocked,
+  rate-limited, network) and answers 503 when fewer than half got through, for an
+  external watchdog. Redlib also logs these counts (nothing else) every 5 minutes.
 
 ## API
 

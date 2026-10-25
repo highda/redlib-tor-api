@@ -88,6 +88,19 @@ async fn resource(body: &str, content_type: &str, cache: bool) -> Result<Respons
 	Ok(res)
 }
 
+/// 503 when most recent requests to Reddit failed, for an external watchdog.
+async fn reddit_health() -> Result<Response<Body>, String> {
+	let (healthy, summary) = redlib::reddit_health::status();
+	Ok(
+		Response::builder()
+			.status(if healthy { 200 } else { 503 })
+			.header("content-type", "text/plain")
+			.header("Cache-Control", "no-store")
+			.body(summary.into())
+			.unwrap_or_default(),
+	)
+}
+
 async fn style() -> Result<Response<Body>, String> {
 	let mut res = include_str!("../static/style.css").to_string();
 	for file in ThemeAssets::iter() {
@@ -189,6 +202,7 @@ async fn main() {
 	info!("Creating OAUTH client in the background.");
 	tokio::spawn(init_oauth_client());
 	fingerprint::start_ua_version_refresh();
+	redlib::reddit_health::start_summary_log();
 
 	// Define default headers (added to all responses)
 	app.default_headers = headers! {
@@ -245,6 +259,8 @@ async fn main() {
 	app.at("/copy.js").get(|_| resource(include_str!("../static/copy.js"), "text/javascript", false).boxed());
 	app.at("/__aqua/yurification.js").get(|r| fingerprint::script(r).boxed());
 	app.at("/__aqua/axis_order").post(|r| fingerprint::verify(r).boxed());
+
+	app.at("/healthz/reddit").get(|_| reddit_health().boxed());
 
 	app.at("/raw/*path").get(|r| redlib::raw::handler(r).boxed());
 

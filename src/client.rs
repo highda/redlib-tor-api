@@ -1,5 +1,6 @@
 use crate::dbg_msg;
 use crate::oauth::{force_refresh_token, token_daemon, Oauth, OauthBackendImpl};
+use crate::reddit_health;
 use crate::reddit_urls;
 use crate::server::RequestExt;
 use crate::stale;
@@ -537,7 +538,12 @@ impl Drop for InFlight {
 }
 
 async fn fetch_json(path: String, quarantine: bool) -> Result<Value, String> {
-	coalesce(stale::key(&path, quarantine), fetch_json_once(path, quarantine)).await
+	coalesce(stale::key(&path, quarantine), async {
+		let result = fetch_json_once(path, quarantine).await;
+		reddit_health::record_result(&result);
+		result
+	})
+	.await
 }
 
 async fn fetch_json_once(path: String, quarantine: bool) -> Result<Value, String> {

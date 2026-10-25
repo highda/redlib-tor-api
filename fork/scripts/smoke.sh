@@ -139,6 +139,10 @@ elif (( ! OFFLINE )); then
   check redlib_html          '/r/rust'                               200 '^text/html'
   check redlib_settings      '/settings'                             200 '^text/html'
 fi
+if (( ! OFFLINE )); then
+  # After the checks above, most requests to Reddit got through
+  check reddit_health        '/healthz/reddit'                       200 '^text/plain' 'grep:^ok: last [0-9]+ Reddit requests'
+fi
 
 printf '\n%-5s  %-24s  %-6s  %-8s  %s\n' RESULT CHECK STATUS TIME DETAIL
 for row in "${ROWS[@]}"; do
