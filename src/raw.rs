@@ -142,6 +142,9 @@ fn reddit_path(path: &str) -> Option<String> {
 		// Users
 		["user", name] => is_user(name),
 		["user", name, listing] => is_user(name) && USER_LISTINGS.contains(listing),
+		// Custom feeds (multireddits)
+		["user", name, "m", feed] => is_user(name) && is_feed(feed),
+		["user", name, "m", feed, sort] => is_user(name) && is_feed(feed) && SORTS.contains(sort),
 		// Subreddit discovery
 		["subreddits", listing] => SUBREDDITS_LISTINGS.contains(listing),
 		["users", "search"] => true,
@@ -179,6 +182,10 @@ fn is_sub(s: &str) -> bool {
 
 fn is_user(s: &str) -> bool {
 	s.len() <= 64 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+fn is_feed(s: &str) -> bool {
+	!s.is_empty() && s.len() <= 64 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
 fn is_id(s: &str) -> bool {
@@ -276,6 +283,8 @@ mod tests {
 			("/search.json", "/search.json"),
 			("/subreddits/search", "/subreddits/search.json"),
 			("/users/search", "/users/search.json"),
+			("/user/reddit/m/tech_feed", "/user/reddit/m/tech_feed.json"),
+			("/user/reddit/m/tech_feed/top", "/user/reddit/m/tech_feed/top.json"),
 		];
 		for (input, expected) in ok {
 			assert_eq!(reddit_path(input).as_deref(), Some(expected), "{input}");
@@ -301,6 +310,9 @@ mod tests {
 			"/prefs",
 			"//r/rust",
 			"/r//hot",
+			"/user/reddit/m/feed/sideways",
+			"/user/reddit/m/fe.ed",
+			"/user/reddit/m",
 		];
 		for input in bad {
 			assert_eq!(reddit_path(input), None, "{input}");

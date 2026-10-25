@@ -79,6 +79,11 @@ Path segments in `{}`; `?` marks optional ones.
 - `target=reddit`: `{ about: <Reddit about>, overview: <Reddit listing> }` (what Stealth reads).
 - JSON: `{ username, icon_img, created, verified, link_karma, comment_karma, view_more_posts, user_front, post_type, before, after, posts }`. RSS: up to 25 items.
 
+### Custom feed: `/u/{user}/m/{feed}/{sort}?`, `/user/{user}/m/{feed}/{sort}?`
+- A public custom feed (multireddit), served like a subreddit listing: same `sort`, `t`,
+  `after`, `before`, `limit`, `mode`, output and RSS.
+- Reddit: `/user/{user}/m/{feed}/{sort}.json?count=25`.
+
 ### User search: `/users/search` (extension, `target=reddit` only)
 - `q` (required), `nsfw` (`on`/`off` → Reddit `include_over_18`), `after`, `before`, `limit`.
 - Reddit: `/users/search.json`, returned as is. Without `target=reddit`: 404 (Teddit has no

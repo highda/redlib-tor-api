@@ -129,6 +129,8 @@ if (( ! OFFLINE )); then
   check stealth_user_search  "/users/search?api&q=spez$ST"           200 "$J" '[.data.children[].data.name] | index("spez") != null'
   MORE="$(jq -r '.[1].data.children[-1] | select(.kind == "more") | .data.id' "$TMP/last_stealth_post" 2>/dev/null)"
   check stealth_post_more    "$POST?api&cursor=$MORE$ST"             200 "$J" '(.[1].data.children | length) > 0 and .[1].data.children[0].kind == "t1"'
+  check post_sort_random     "$POST?api&sort=random$ST"              200 "$J" '.[1].data.sort == "random"'
+  check custom_feed          '/u/kn0thing/m/good?api'                200 "$J" '(.links | length) > 0'
 fi
 
 # Redlib HTML (needs the real Redlib, so skipped offline)

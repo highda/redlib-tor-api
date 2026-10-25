@@ -137,6 +137,7 @@ fn sort_type(sort: &str) -> Option<&'static str> {
 		"controversial" => "CONTROVERSIAL",
 		"old" => "OLD",
 		"qa" => "QA",
+		"random" => "RANDOM",
 		_ => return None,
 	})
 }

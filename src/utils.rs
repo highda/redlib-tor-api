@@ -1369,6 +1369,7 @@ pub fn reddit_error_status(msg: &str) -> Option<u16> {
 	}
 	let lower = msg.to_ascii_lowercase();
 	Some(match msg {
+		"Unsupported comment sort" | "Invalid comments cursor" => 400,
 		"private" | "quarantined" | "gated" => 403,
 		"banned" | "suspended" | "Post not found" | "Comment not found" => 404,
 		_ if lower.contains("rate limit") || lower.contains("too many requests") => 429,

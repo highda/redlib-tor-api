@@ -95,7 +95,8 @@ export function createApp({ redlib = createRedlibClient(), teddit, publicBaseUrl
 
   return http.createServer(async (req, res) => {
     const started = Date.now();
-    res.on('finish', () => log(`${req.method} ${req.url} ${res.statusCode} ${Date.now() - started}ms`));
+    // The path only: queries carry search terms and cursors.
+    res.on('finish', () => log(`${req.method} ${req.url.split('?')[0]} ${res.statusCode} ${Date.now() - started}ms`));
     if (req.method !== 'GET' && req.method !== 'HEAD') return sendJson(res, 405, { error: 'Method not allowed', status: 405 });
     try {
       await route(req, res);

@@ -139,6 +139,8 @@ export async function handleApi(url, cookies, { teddit, redlib }) {
     else throw new UpstreamError(404, 'No such API route');
   } else if (a === 'comments' && n >= 2 && n <= 4) {
     await post(ctx, `/comments/${b}`, c, d);
+  } else if ((a === 'u' || a === 'user') && c === 'm' && (n === 4 || n === 5)) {
+    await customFeed(ctx, b, d, e);
   } else if ((a === 'u' || a === 'user') && (n === 2 || n === 3)) {
     await user(ctx, b, c);
   } else if (a === 'users' && b === 'search' && n === 2) {
@@ -209,6 +211,22 @@ async function subredditListing(ctx, subreddit, sortParam) {
     raw_json,
   });
   await teddit.handleSubreddit(json, req, res, 'from_online', type, target, subreddit, query.mode);
+}
+
+// routes/user.js: /u/:user/m/:custom_feed/:sort?, served like a subreddit listing
+async function customFeed(ctx, user, feed, sortParam) {
+  const { query, req, res, type, target, raw_json, teddit, redlib } = ctx;
+  const sortby = sortParam || 'hot';
+  if (!LISTING_SORTS.includes(sortby)) throw new BadRequest('Invalid sort');
+  const past = listingPast(sortby, query.t, 'Invalid t');
+  const json = await redlib.json(`/user/${user}/m/${feed}/${sortby}.json`, {
+    count: 25,
+    t: past,
+    ...cursor(query.after, query.before),
+    limit: query.limit,
+    raw_json,
+  });
+  await teddit.handleSubreddit(json, req, res, 'from_online', type, target, `u/${user}/m/${feed}`, query.mode);
 }
 
 // routes/subreddit.js: /r/:subreddit/about (API only)
