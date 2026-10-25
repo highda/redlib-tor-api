@@ -16,6 +16,7 @@ use std::result::Result;
 use std::sync::atomic::Ordering;
 use std::sync::atomic::{AtomicBool, AtomicU16};
 use std::sync::LazyLock;
+use std::time::Duration;
 use wreq::dns::{Addrs, Name, Resolve, Resolving};
 use wreq::redirect::Policy;
 use wreq::{header as wreq_header, Client as WreqClient, Method, Response as WreqResponse};
@@ -34,6 +35,15 @@ pub static OAUTH_RATELIMIT_REMAINING: AtomicU16 = AtomicU16::new(99);
 pub static OAUTH_IS_ROLLING_OVER: AtomicBool = AtomicBool::new(false);
 
 const ALTERNATIVE_REDDIT_DNS_HOST: &str = "dualstack.reddit.map.fastly.net";
+
+// A stalled Tor circuit used to hang requests (and media streams) forever.
+// Building a cold onion circuit takes 20-45 s, so connecting gets 45 s;
+// a read may stall 30 s (video streams keep reading); a whole API request
+// ends before teddit-api gives up on it (60 s).
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(45);
+const READ_TIMEOUT: Duration = Duration::from_secs(30);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(50);
+const MAX_REDIRECTS: u8 = 5;
 
 #[derive(Debug)]
 struct RedditDnsResolver;
@@ -82,6 +92,8 @@ pub fn build_client() -> WreqClient {
 		.emulation(emulation)
 		.redirect(Policy::none())
 		.dns_resolver(RedditDnsResolver)
+		.connect_timeout(CONNECT_TIMEOUT)
+		.read_timeout(READ_TIMEOUT)
 		.build()
 		.expect("Should always be able to build a client")
 }
@@ -233,12 +245,12 @@ pub async fn proxy(req: HyperRequest<Body>, format: &str) -> Result<HyperRespons
 /// 3xx codes Reddit returns and will automatically redirect.
 fn reddit_get(path: String, quarantine: bool) -> Boxed<Result<WreqResponse, String>> {
 	let (base, host) = reddit_urls::oauth_base();
-	request(&Method::GET, path, true, quarantine, base, host)
+	request(&Method::GET, path, Some(MAX_REDIRECTS), quarantine, base, host)
 }
 
 /// Makes a HEAD request to Reddit at `path, using the short URL base. This will not follow redirects.
 fn reddit_short_head(path: String, quarantine: bool, base_path: &'static str, host: &'static str) -> Boxed<Result<WreqResponse, String>> {
-	request(&Method::HEAD, path, false, quarantine, base_path, host)
+	request(&Method::HEAD, path, None, quarantine, base_path, host)
 }
 
 // /// Makes a HEAD request to Reddit at `path`. This will not follow redirects.
@@ -247,10 +259,10 @@ fn reddit_short_head(path: String, quarantine: bool, base_path: &'static str, ho
 // }
 // Unused - reddit_head is only ever called in the context of a short URL
 
-/// Makes a request to Reddit. If `redirect` is `true`, `request_with_redirect`
-/// will recurse on the URL that Reddit provides in the Location HTTP header
-/// in its response.
-fn request(method: &'static Method, path: String, redirect: bool, quarantine: bool, base_path: &'static str, host: &'static str) -> Boxed<Result<WreqResponse, String>> {
+/// Makes a request to Reddit. With `redirects` set, `request` recurses on the
+/// URL that Reddit provides in the Location HTTP header in its response, at
+/// most that many times; with `None`, the redirect itself is returned.
+fn request(method: &'static Method, path: String, redirects: Option<u8>, quarantine: bool, base_path: &'static str, host: &'static str) -> Boxed<Result<WreqResponse, String>> {
 	// Keep the logical path unchanged for caches and diagnostics. Reddit blocks
 	// literal anonymous comments routes, so only rewrite the outgoing URL.
 	let api_path = onion_api_transport_path(&path, host);
@@ -279,7 +291,7 @@ fn request(method: &'static Method, path: String, redirect: bool, quarantine: bo
 	// shuffle headers: https://github.com/redlib-org/redlib/issues/324
 	fastrand::shuffle(&mut headers);
 
-	let mut builder = CLIENT.request(method.clone(), &url);
+	let mut builder = CLIENT.request(method.clone(), &url).timeout(REQUEST_TIMEOUT);
 
 	for (key, value) in headers {
 		builder = builder.header(key, value);
@@ -291,9 +303,12 @@ fn request(method: &'static Method, path: String, redirect: bool, quarantine: bo
 				// Reddit may respond with a 3xx. Decide whether or not to
 				// redirect based on caller params.
 				if response.status().is_redirection() {
-					if !redirect {
+					let Some(redirects) = redirects else {
 						return Ok(response);
 					};
+					if redirects == 0 {
+						return Err("Too many redirects from Reddit".to_string());
+					}
 					let location_header = response.headers().get(wreq::header::LOCATION);
 					if location_header.and_then(|h| h.to_str().ok()) == Some(reddit_urls::www_base().0) {
 						return Err("Reddit response was invalid".to_string());
@@ -319,7 +334,7 @@ fn request(method: &'static Method, path: String, redirect: bool, quarantine: bo
 							})
 							.unwrap_or_default()
 							.to_string(),
-						true,
+						Some(redirects - 1),
 						quarantine,
 						base_path,
 						host,
