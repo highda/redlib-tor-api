@@ -16,7 +16,7 @@ use std::borrow::Cow;
 use std::result::Result;
 use std::sync::atomic::Ordering;
 use std::sync::atomic::{AtomicBool, AtomicU16};
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use wreq::dns::{Addrs, Name, Resolve, Resolving};
 use wreq::redirect::Policy;
@@ -445,17 +445,24 @@ async fn json_fresh(path: String, quarantine: bool) -> Result<Value, String> {
 	// First, handle rolling over the OAUTH_CLIENT if need be.
 	let current_rate_limit = OAUTH_RATELIMIT_REMAINING.load(Ordering::SeqCst);
 	let is_rolling_over = OAUTH_IS_ROLLING_OVER.load(Ordering::SeqCst);
-	if current_rate_limit < 10 && !is_rolling_over {
+	if current_rate_limit < refresh_threshold(reddit_urls::use_reddit_onion()) && !is_rolling_over {
 		warn!("Rate limit {current_rate_limit} is low. Spawning force_refresh_token()");
 		tokio::spawn(force_refresh_token());
 	}
+	if current_rate_limit == 0 && is_rolling_over {
+		wait_for_rollover().await;
+	}
 	#[allow(deprecated)] // try_update is newer than the project's MSRV.
 	let _ = OAUTH_RATELIMIT_REMAINING.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| remaining.checked_sub(1));
+	let token = OAUTH_CLIENT.load_full();
 
 	// Fetch the url...
 	match reddit_get(path.clone(), quarantine).await {
 		Ok(response) => {
 			let status = response.status();
+			// An answer that arrives after a refresh swapped the token speaks for
+			// the old token: its counter and errors must not touch the new one.
+			let current_token = Arc::ptr_eq(&token, &OAUTH_CLIENT.load_full());
 
 			let reset: Option<String> = if let (Some(remaining), Some(reset), Some(used)) = (
 				response.headers().get("x-ratelimit-remaining").and_then(|val| val.to_str().ok().map(|s| s.to_string())),
@@ -468,7 +475,7 @@ async fn json_fresh(path: String, quarantine: bool) -> Result<Value, String> {
 				);
 
 				// If can parse remaining as a float, round to a u16 and save
-				if let Ok(val) = remaining.parse::<f32>() {
+				if let (true, Ok(val)) = (current_token, remaining.parse::<f32>()) {
 					OAUTH_RATELIMIT_REMAINING.store(val.round() as u16, Ordering::SeqCst);
 				}
 
@@ -481,12 +488,16 @@ async fn json_fresh(path: String, quarantine: bool) -> Result<Value, String> {
 			// necessarily JSON, and a JSON 429 did not lead to a refresh.
 			let challenge = response.headers().get(wreq_header::WWW_AUTHENTICATE).and_then(|val| val.to_str().ok());
 			if credential_rejected(status.as_u16(), challenge) {
-				error!("Reddit rejected the OAuth token ({status}). Spawning force_refresh_token()");
-				tokio::spawn(force_refresh_token());
+				if current_token {
+					error!("Reddit rejected the OAuth token ({status}). Spawning force_refresh_token()");
+					tokio::spawn(force_refresh_token());
+				}
 				return Err("OAuth token has expired. Please refresh the page!".to_string());
 			}
 			if status.as_u16() == 429 {
-				tokio::spawn(force_refresh_token());
+				if current_token {
+					tokio::spawn(force_refresh_token());
+				}
 				return Err(rate_limit_error(reset));
 			}
 
@@ -555,6 +566,26 @@ async fn json_fresh(path: String, quarantine: bool) -> Result<Value, String> {
 			}
 		}
 		Err(e) => err("Couldn't send request to Reddit", e, path),
+	}
+}
+
+/// Requests left on a token below which it is replaced. A refresh over the
+/// onion takes seconds to minutes, so it starts earlier there.
+fn refresh_threshold(use_reddit_onion: bool) -> u16 {
+	if use_reddit_onion {
+		30
+	} else {
+		10
+	}
+}
+
+/// Waits up to 10 s for a running token refresh to finish.
+async fn wait_for_rollover() {
+	for _ in 0..40 {
+		if !OAUTH_IS_ROLLING_OVER.load(Ordering::SeqCst) {
+			return;
+		}
+		tokio::time::sleep(Duration::from_millis(250)).await;
 	}
 }
 
@@ -795,6 +826,12 @@ mod tests {
 		assert!(!credential_rejected(403, None));
 		assert!(!credential_rejected(403, Some("Bearer error=\"insufficient_scope\"")));
 		assert!(!credential_rejected(429, Some("Bearer error=\"invalid_token\"")));
+	}
+
+	#[test]
+	fn test_onion_tokens_are_replaced_earlier() {
+		assert_eq!(refresh_threshold(true), 30);
+		assert_eq!(refresh_threshold(false), 10);
 	}
 
 	#[test]
