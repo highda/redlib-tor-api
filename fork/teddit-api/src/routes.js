@@ -325,14 +325,17 @@ async function user(ctx, name, kindParam) {
     } else past = '';
   } else past = sortby === 'controversial' || sortby === 'top' ? 'all' : '';
 
-  const user_data = {};
-  user_data.about = await redlib.json(`/user/${name}/about.json`, { raw_json });
-  user_data.overview = await redlib.json(`/user/${name}${post_type || '/overview'}.json`, {
-    limit: 26,
-    ...cursor(after, before),
-    sort: sortby,
-    t: past,
-    raw_json,
-  });
+  // Both at once: each is a round trip through Tor.
+  const [about, overview] = await Promise.all([
+    redlib.json(`/user/${name}/about.json`, { raw_json }),
+    redlib.json(`/user/${name}${post_type || '/overview'}.json`, {
+      limit: 26,
+      ...cursor(after, before),
+      sort: sortby,
+      t: past,
+      raw_json,
+    }),
+  ]);
+  const user_data = { about, overview };
   await teddit.handleUser(user_data, req, res, 'online', type, target, name, after, before);
 }

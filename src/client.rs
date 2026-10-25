@@ -460,13 +460,34 @@ fn comments_logical_path(path: &str) -> String {
 /// fails transiently (rate limit, block, network), serve the last good copy of
 /// this response instead, if one is recent enough; see `stale`.
 pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
-	stale::or_copy(json_fresh(path.clone(), quarantine).await, &stale::key(&path, quarantine))
+	let fresh = if is_about(&path) {
+		json_about(path.clone(), quarantine).await
+	} else {
+		json_fresh(path.clone(), quarantine).await
+	};
+	stale::or_copy(fresh, &stale::key(&path, quarantine))
 }
 
-// Kept outside the 30 s cache below, so a copy served during a block is never
-// cached as if it were fresh.
+/// Subreddit and user "about" data changes rarely but comes with every page
+/// of a subreddit or user (and every Teddit API call for one).
+fn is_about(path: &str) -> bool {
+	let base = path.split('?').next().unwrap_or(path);
+	base.ends_with("/about.json") && (base.starts_with("/r/") || base.starts_with("/user/"))
+}
+
+// The caches are kept inside the stale fallback, so a copy served during a
+// block is never cached as if it were fresh.
 #[cached(size = 100, time = 30, result = true)]
 async fn json_fresh(path: String, quarantine: bool) -> Result<Value, String> {
+	fetch_json(path, quarantine).await
+}
+
+#[cached(size = 200, time = 900, result = true)]
+async fn json_about(path: String, quarantine: bool) -> Result<Value, String> {
+	fetch_json(path, quarantine).await
+}
+
+async fn fetch_json(path: String, quarantine: bool) -> Result<Value, String> {
 	// Closure to quickly build errors
 	let err = |msg: &str, e: String, path: String| -> Result<Value, String> {
 		// eprintln!("{} - {}: {}", url, msg, e);
@@ -872,6 +893,15 @@ mod tests {
 		assert!(!credential_rejected(403, None));
 		assert!(!credential_rejected(403, Some("Bearer error=\"insufficient_scope\"")));
 		assert!(!credential_rejected(429, Some("Bearer error=\"invalid_token\"")));
+	}
+
+	#[test]
+	fn test_about_pages_are_recognised() {
+		assert!(is_about("/r/rust/about.json?raw_json=1"));
+		assert!(is_about("/user/spez/about.json"));
+		assert!(!is_about("/r/rust/hot.json?q=/about.json"));
+		assert!(!is_about("/r/rust/about/rules.json"));
+		assert!(!is_about("/search.json?q=x/about.json"));
 	}
 
 	#[test]

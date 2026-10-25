@@ -47,8 +47,23 @@ const MAX_DEPTH: u32 = 10;
 /// Preserve the existing two-Listing response consumed by post::item, or the
 /// last good copy of it while Reddit fails transiently (see `stale`).
 pub async fn thread(path: String, quarantine: bool) -> Result<Value, String> {
+	let path = thread_key(&path).ok_or("Invalid post path")?;
 	let key = stale_key(&path, quarantine);
 	stale::or_copy(thread_fresh(path, quarantine).await, &key)
+}
+
+/// The parts of a post path that select a thread, in one spelling, so that
+/// slugs, `raw_json`, `limit` and parameter order share one cache entry.
+fn thread_key(path: &str) -> Option<String> {
+	let (id, comment_id) = parse_path(path)?;
+	let mut query = url::form_urlencoded::Serializer::new(String::new());
+	for name in ["sort", "context", "cursor"] {
+		if let Some(value) = param(path, name).filter(|v| !v.is_empty()) {
+			query.append_pair(name, &value);
+		}
+	}
+	let comment = comment_id.map(|c| format!("/_/{c}")).unwrap_or_default();
+	Some(format!("/comments/{id}{comment}.json?{}", query.finish()))
 }
 
 fn stale_key(path: &str, quarantine: bool) -> String {
@@ -59,18 +74,35 @@ fn stale_key(path: &str, quarantine: bool) -> String {
 #[cached(size = 100, time = 30, result = true)]
 async fn thread_fresh(path: String, quarantine: bool) -> Result<Value, String> {
 	let (id, comment_id) = parse_path(&path).ok_or("Invalid post path")?;
-	let post = json(format!("/by_id/t3_{id}.json?raw_json=1"), quarantine).await?;
-	let metadata = post["data"]["children"].as_array().and_then(|p| p.first()).ok_or("Post not found")?;
-	let sort = param(&path, "sort")
-		.filter(|s| !s.is_empty())
-		.or_else(|| metadata["data"]["suggested_sort"].as_str().filter(|s| sort_type(s).is_some()).map(str::to_owned))
-		.unwrap_or_else(|| "confidence".to_string());
-	let variables = variables(&id, comment_id.as_deref(), &path, &sort)?;
-	let body = json_value!({
-	 "operationName": "PostComments", "variables": variables,
-	 "extensions": { "persistedQuery": { "version": 1, "sha256Hash": post_comments_hash() } }
-	});
-	let response = query(&body).await?;
+	let post_path = format!("/by_id/t3_{id}.json?raw_json=1");
+	let comments_query = |sort: &str| -> Result<_, String> {
+		let body = json_value!({
+		 "operationName": "PostComments", "variables": variables(&id, comment_id.as_deref(), &path, sort)?,
+		 "extensions": { "persistedQuery": { "version": 1, "sha256Hash": post_comments_hash() } }
+		});
+		Ok(async move { query(&body).await })
+	};
+	// With a sort given, the comments do not depend on the post's metadata:
+	// fetch both at once, one onion round trip instead of two. The post's
+	// errors (missing, private, quarantined) still come first.
+	let (post, sort, response) = match param(&path, "sort").filter(|s| !s.is_empty()) {
+		Some(sort) => {
+			let (post, response) = tokio::join!(json(post_path, quarantine), comments_query(&sort)?);
+			(post?, sort, response)
+		}
+		None => {
+			let post = json(post_path, quarantine).await?;
+			let metadata = post["data"]["children"].as_array().and_then(|p| p.first()).ok_or("Post not found")?;
+			let sort = metadata["data"]["suggested_sort"]
+				.as_str()
+				.filter(|s| sort_type(s).is_some())
+				.map_or_else(|| "confidence".to_string(), str::to_owned);
+			let response = comments_query(&sort)?.await;
+			(post, sort, response)
+		}
+	};
+	post["data"]["children"].as_array().and_then(|p| p.first()).ok_or("Post not found")?;
+	let response = response?;
 	let mut comments = comment_listing(&response, &id)?;
 	if let Some(comment_id) = comment_id {
 		let context = param(&path, "context").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
@@ -807,6 +839,20 @@ mod tests {
 		let b = &a["replies"]["data"]["children"][0]["data"];
 		assert_eq!(b["is_submitter"], true);
 		assert_eq!(b["permalink"], "/r/rust/comments/p/title/b/");
+	}
+
+	#[test]
+	fn threads_share_a_cache_entry_whatever_the_slug_and_extra_parameters() {
+		let key = thread_key("/r/rust/comments/abc/some_title/.json?raw_json=1&sort=new&limit=500").unwrap();
+		assert_eq!(key, "/comments/abc.json?sort=new");
+		assert_eq!(thread_key("/comments/abc.json?sort=new").unwrap(), key);
+		assert_eq!(
+			thread_key("/r/rust/comments/abc/t/def.json?cursor=Y3Vy&context=3&sort=top").unwrap(),
+			"/comments/abc/_/def.json?sort=top&context=3&cursor=Y3Vy"
+		);
+		assert_eq!(thread_key("/comments/abc.json?sort=a%26b").unwrap(), "/comments/abc.json?sort=a%26b");
+		assert_eq!(thread_key("/comments/abc.json").unwrap(), "/comments/abc.json?");
+		assert!(thread_key("/r/rust/hot.json").is_none());
 	}
 
 	#[test]
