@@ -209,3 +209,25 @@ test('media streams outlive the header timeout and survive client disconnects', 
   r = await fetch(`${base}/healthz`);
   assert.equal(r.status, 200, 'server still alive after a client disconnect mid-stream');
 });
+
+test('rate limits keep their status and Retry-After', async (t) => {
+  const http = await import('node:http');
+  const limited = http.createServer((req, res) => {
+    const body = JSON.stringify({ error: 'Reddit rate limit exceeded', status: 429 });
+    res.writeHead(429, { 'content-type': 'application/json', 'retry-after': '42' });
+    res.end(body);
+  });
+  const teddit = loadTeddit(undefined, { publicBaseUrl: 'https://teddit.example' });
+  const app = createApp({ redlib: createRedlibClient({ baseUrl: `http://127.0.0.1:${await listen(limited)}`, token: 'tok' }), teddit, log: () => {} });
+  const base = `http://127.0.0.1:${await listen(app)}`;
+  t.after(() => {
+    limited.closeAllConnections();
+    limited.close();
+    app.closeAllConnections();
+    app.close();
+  });
+  const res = await fetch(`${base}/r/rust?api`);
+  assert.equal(res.status, 429);
+  assert.equal(res.headers.get('retry-after'), '42');
+  assert.equal((await res.json()).error, 'Reddit rate limit exceeded');
+});

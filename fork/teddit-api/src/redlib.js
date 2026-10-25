@@ -9,9 +9,11 @@ const require = createRequire(import.meta.url);
 const { deonionize } = require('./media.cjs');
 
 export class UpstreamError extends Error {
-  constructor(status, message) {
+  constructor(status, message, retryAfter = null) {
     super(message);
     this.status = status;
+    // Seconds, from Redlib's Retry-After (429 rate limit, 503 not ready).
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -69,7 +71,10 @@ export function createRedlibClient({
     } catch {
       throw new UpstreamError(res.status === 200 ? 502 : res.status, res.status === 404 ? 'Not found' : 'Invalid JSON from Redlib');
     }
-    if (res.status !== 200) throw new UpstreamError(res.status, data.error || `Upstream status ${res.status}`);
+    if (res.status !== 200) {
+      const retryAfter = /^\d+$/.test(res.headers.get('retry-after') || '') ? res.headers.get('retry-after') : null;
+      throw new UpstreamError(res.status, data.error || `Upstream status ${res.status}`, retryAfter);
+    }
     return data;
   }
 

@@ -1357,6 +1357,52 @@ pub fn redirect(path: &str) -> Response<Body> {
 }
 
 /// Renders a generic error landing page.
+/// The HTTP status for an error from `client::json` or `gql::thread`, if the
+/// message is one of theirs.
+pub fn reddit_error_status(msg: &str) -> Option<u16> {
+	if let Some(rest) = msg.strip_prefix("Reddit error ") {
+		if let Some(code) = rest.split_whitespace().next().and_then(|c| c.parse::<u16>().ok()) {
+			if (400..600).contains(&code) {
+				return Some(code);
+			}
+		}
+	}
+	let lower = msg.to_ascii_lowercase();
+	Some(match msg {
+		"private" | "quarantined" | "gated" => 403,
+		"banned" | "suspended" | "Post not found" | "Comment not found" => 404,
+		_ if lower.contains("rate limit") || lower.contains("too many requests") => 429,
+		_ if msg.starts_with("OAuth token has expired") || msg == crate::client::OAUTH_NOT_READY => 503,
+		_ if msg.starts_with("Reddit blocked this request")
+			|| msg.starts_with("Couldn't send request to Reddit")
+			|| msg.starts_with("Failed receiving body from Reddit")
+			|| msg.starts_with("Failed to parse page JSON data")
+			|| msg.starts_with("Reddit is having issues")
+			|| msg.starts_with("Too many redirects from Reddit")
+			|| msg.starts_with("Reddit comments")
+			|| msg.starts_with("Reddit returned") =>
+		{
+			502
+		}
+		_ => return None,
+	})
+}
+
+/// Seconds a client should wait before retrying a 429 or 503: Reddit's reset
+/// time when the message carries it.
+pub fn retry_after(msg: &str, status: u16) -> Option<u64> {
+	match status {
+		429 => Some(
+			msg
+				.split_once("Rate limit will reset in: ")
+				.and_then(|(_, reset)| reset.trim().parse::<f64>().ok())
+				.map_or(30, |reset| reset.ceil().clamp(1.0, 600.0) as u64),
+		),
+		503 => Some(30),
+		_ => None,
+	}
+}
+
 pub async fn error(req: Request<Body>, msg: &str) -> Result<Response<Body>, String> {
 	error!("Error page rendered: {}", msg.split('|').next().unwrap_or_default());
 	let url = req.uri().to_string();
@@ -1368,7 +1414,14 @@ pub async fn error(req: Request<Body>, msg: &str) -> Result<Response<Body>, Stri
 	.render()
 	.unwrap_or_default();
 
-	Ok(Response::builder().status(404).header("content-type", "text/html").body(body.into()).unwrap_or_default())
+	// Reddit's failures keep their status (rate limit, block, outage), so that
+	// monitors and caches can tell them from a missing page.
+	let status = reddit_error_status(msg).unwrap_or(404);
+	let mut builder = Response::builder().status(status).header("content-type", "text/html");
+	if let Some(seconds) = retry_after(msg, status) {
+		builder = builder.header("retry-after", seconds);
+	}
+	Ok(builder.body(body.into()).unwrap_or_default())
 }
 
 /// Renders a generic info landing page.

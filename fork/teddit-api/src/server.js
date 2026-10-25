@@ -23,9 +23,9 @@ const MEDIA_RESPONSE_HEADERS = [
   'expires',
 ];
 
-function sendJson(res, status, obj) {
+function sendJson(res, status, obj, extraHeaders = {}) {
   const body = JSON.stringify(obj);
-  res.writeHead(status, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) });
+  res.writeHead(status, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body), ...extraHeaders });
   res.end(body);
 }
 
@@ -104,7 +104,7 @@ export function createApp({ redlib = createRedlibClient(), teddit, publicBaseUrl
       if (!(err instanceof UpstreamError)) log(`error: ${err.stack || err}`);
       else if (status >= 500) log(`upstream ${status}: ${err.message}`);
       if (res.headersSent) return res.destroy();
-      sendJson(res, status, { error: err.message || 'Internal error', status });
+      sendJson(res, status, { error: err.message || 'Internal error', status }, err.retryAfter ? { 'retry-after': err.retryAfter } : {});
     }
   });
 }

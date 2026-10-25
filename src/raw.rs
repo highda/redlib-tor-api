@@ -86,7 +86,11 @@ pub async fn handler(req: Request<Body>) -> Result<Response<Body>, String> {
 		Ok(value) => json_response(200, &value),
 		Err(msg) => {
 			let status = error_status(&msg);
-			json_response(status, &json_value!({ "error": msg, "status": status }))
+			let mut response = json_response(status, &json_value!({ "error": msg, "status": status }));
+			if let Some(seconds) = crate::utils::retry_after(&msg, status) {
+				response.headers_mut().insert("retry-after", seconds.into());
+			}
+			response
 		}
 	})
 }
@@ -205,21 +209,7 @@ fn filter_query(query: &str) -> String {
 
 /// Best-effort HTTP status for an error string from `client::json`.
 fn error_status(msg: &str) -> u16 {
-	if let Some(rest) = msg.strip_prefix("Reddit error ") {
-		if let Some(code) = rest.split_whitespace().next().and_then(|c| c.parse::<u16>().ok()) {
-			if (400..600).contains(&code) {
-				return code;
-			}
-		}
-	}
-	let lower = msg.to_ascii_lowercase();
-	match msg {
-		"private" | "quarantined" | "gated" => 403,
-		"banned" | "suspended" | "Post not found" | "Comment not found" => 404,
-		_ if lower.contains("rate limit") || lower.contains("too many requests") => 429,
-		m if m.contains("OAuth token has expired") => 503,
-		_ => 502,
-	}
+	crate::utils::reddit_error_status(msg).unwrap_or(502)
 }
 
 fn json_response(status: u16, value: &serde_json::Value) -> Response<Body> {
@@ -361,5 +351,17 @@ mod tests {
 		assert_eq!(error_status("Post not found"), 404);
 		assert_eq!(error_status("OAuth token has expired. Please refresh the page!"), 503);
 		assert_eq!(error_status("Couldn't send request to Reddit: boom | /x"), 502);
+		assert_eq!(error_status(crate::client::OAUTH_NOT_READY), 503);
+		assert_eq!(error_status("something new"), 502);
+	}
+
+	#[test]
+	fn retry_after_comes_from_reddits_reset() {
+		use crate::utils::retry_after;
+		assert_eq!(retry_after("Reddit rate limit exceeded. Try refreshing in a few seconds.Rate limit will reset in: 233.4", 429), Some(234));
+		assert_eq!(retry_after("Reddit rate limit exceeded", 429), Some(30));
+		assert_eq!(retry_after("OAuth token has expired. Please refresh the page!", 503), Some(30));
+		assert_eq!(retry_after("Couldn't send request to Reddit", 502), None);
+		assert_eq!(crate::utils::reddit_error_status("Nothing here"), None, "web pages keep their 404");
 	}
 }

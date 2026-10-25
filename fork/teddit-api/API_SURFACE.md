@@ -130,8 +130,9 @@ All errors are JSON `{ "error": "<message>", "status": <code> }` with that HTTP 
 |---|---|
 | 400 | Invalid `sort` or `t`, missing `q`. |
 | 403 / 404 | Reddit says private / quarantined / gated (403), banned / suspended / not found (404). |
-| 429 | Reddit rate limit. |
-| 502 | Redlib unreachable or Reddit failed (network, Tor). |
+| 429 | Reddit rate limit. `Retry-After` gives the seconds until Reddit's limit resets (30 when unknown). |
+| 502 | Redlib unreachable or Reddit failed (network, Tor, a block page). |
+| 503 | Redlib is still getting its first token, or the token just expired and is being replaced. `Retry-After: 30`. |
 | 5xx | Other upstream Reddit 5xx, passed through. |
 
 ## Other endpoints
