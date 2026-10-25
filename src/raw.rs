@@ -212,10 +212,11 @@ fn error_status(msg: &str) -> u16 {
 			}
 		}
 	}
+	let lower = msg.to_ascii_lowercase();
 	match msg {
 		"private" | "quarantined" | "gated" => 403,
-		"banned" | "suspended" => 404,
-		m if m.contains("rate limit") || m.contains("Too many requests") => 429,
+		"banned" | "suspended" | "Post not found" | "Comment not found" => 404,
+		_ if lower.contains("rate limit") || lower.contains("too many requests") => 429,
 		m if m.contains("OAuth token has expired") => 503,
 		_ => 502,
 	}
@@ -355,6 +356,10 @@ mod tests {
 		assert_eq!(error_status("private"), 403);
 		assert_eq!(error_status("banned"), 404);
 		assert_eq!(error_status("Reddit rate limit exceeded"), 429);
+		assert_eq!(error_status("Too many requests."), 429);
+		assert_eq!(error_status("Reddit comments request returned 429 Too Many Requests"), 429);
+		assert_eq!(error_status("Post not found"), 404);
+		assert_eq!(error_status("OAuth token has expired. Please refresh the page!"), 503);
 		assert_eq!(error_status("Couldn't send request to Reddit: boom | /x"), 502);
 	}
 }

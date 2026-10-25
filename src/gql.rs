@@ -6,11 +6,13 @@
 //! The RTJSON renderer and comment conversion retain that implementation's design.
 
 use crate::client::{json, CLIENT, OAUTH_CLIENT};
+use crate::oauth::force_refresh_token;
 use crate::reddit_urls;
 use crate::utils::{format_url, param};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use cached::proc_macro::cached;
 use chrono::DateTime;
+use log::trace;
 use serde_json::{json as json_value, Value};
 use std::time::Duration;
 
@@ -105,20 +107,62 @@ async fn query(body: &Value) -> Result<Value, String> {
 		}
 		let response = builder.json(body).send().await.map_err(|e| format!("Reddit comments request failed: {e}"))?;
 		let status = response.status();
+		let header = |name: &str| response.headers().get(name).and_then(|v| v.to_str().ok()).unwrap_or("?").to_owned();
+		trace!(
+			"GraphQL {status}, rate limit remaining {}, used {}, resets in {}",
+			header("x-ratelimit-remaining"),
+			header("x-ratelimit-used"),
+			header("x-ratelimit-reset")
+		);
 		if !status.is_success() {
-			return Err(format!("Reddit comments request returned {status}"));
+			return Err(match status.as_u16() {
+				401 => expired_token(),
+				429 => RATE_LIMITED.to_string(),
+				_ => format!("Reddit comments request returned {status}"),
+			});
 		}
 		let response: Value = response.json().await.map_err(|_| "Reddit returned an invalid comments response")?;
-		// Upstream sometimes times out individual fields while returning HTTP 200.
-		if response["errors"].as_array().is_some_and(|errors| !errors.is_empty()) {
-			if attempt == 0 {
-				continue;
-			}
-			return Err(format!("Reddit comments API error: {}", response["errors"]));
+		let Some(error) = response["errors"].as_array().and_then(|errors| errors.first()) else {
+			return Ok(response);
+		};
+		match error_kind(error) {
+			ErrorKind::Auth => return Err(expired_token()),
+			ErrorKind::RateLimit => return Err(RATE_LIMITED.to_string()),
+			ErrorKind::NotFound => return Err("Post not found".to_string()),
+			// Upstream sometimes times out individual fields while returning HTTP 200.
+			ErrorKind::Other if attempt == 0 => continue,
+			ErrorKind::Other => return Err(format!("Reddit comments API error: {}", response["errors"])),
 		}
-		return Ok(response);
 	}
 	unreachable!()
+}
+
+#[derive(Debug, PartialEq)]
+enum ErrorKind {
+	Auth,
+	RateLimit,
+	NotFound,
+	Other,
+}
+
+/// Only errors without a known cause are worth a retry.
+fn error_kind(error: &Value) -> ErrorKind {
+	match error["extensions"]["code"].as_str().unwrap_or_default() {
+		"UNAUTHENTICATED" | "NOT_AUTHENTICATED" | "UNAUTHORIZED" => ErrorKind::Auth,
+		"TOO_MANY_REQUESTS" | "RATE_LIMITED" | "RATELIMIT" => ErrorKind::RateLimit,
+		"NOT_FOUND" => ErrorKind::NotFound,
+		_ => ErrorKind::Other,
+	}
+}
+
+const RATE_LIMITED: &str = "Reddit rate limit exceeded. Try refreshing in a few seconds.";
+
+/// Retrying with the same token cannot help, so refresh it in the background
+/// (a request handler can be dropped mid-refresh) and fail this request the
+/// way `client::json` does.
+fn expired_token() -> String {
+	tokio::spawn(force_refresh_token());
+	"OAuth token has expired. Please refresh the page!".to_string()
 }
 
 fn comment_listing(response: &Value, post_id: &str) -> Result<Value, String> {
@@ -726,6 +770,16 @@ mod tests {
 		let b = &a["replies"]["data"]["children"][0]["data"];
 		assert_eq!(b["is_submitter"], true);
 		assert_eq!(b["permalink"], "/r/rust/comments/p/title/b/");
+	}
+
+	#[test]
+	fn only_unexplained_graphql_errors_are_retried() {
+		let kind = |code: &str| error_kind(&json_value!({ "message": "x", "extensions": { "code": code } }));
+		assert_eq!(kind("UNAUTHENTICATED"), ErrorKind::Auth);
+		assert_eq!(kind("RATELIMIT"), ErrorKind::RateLimit);
+		assert_eq!(kind("NOT_FOUND"), ErrorKind::NotFound);
+		assert_eq!(kind("INTERNAL_SERVER_ERROR"), ErrorKind::Other);
+		assert_eq!(error_kind(&json_value!({ "message": "timeout" })), ErrorKind::Other);
 	}
 
 	#[test]
