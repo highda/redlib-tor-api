@@ -2,12 +2,13 @@ use crate::dbg_msg;
 use crate::oauth::{force_refresh_token, token_daemon, Oauth, OauthBackendImpl};
 use crate::reddit_urls;
 use crate::server::RequestExt;
+use crate::stale;
 use crate::utils::{format_url, Post};
 use arc_swap::ArcSwap;
 use cached::proc_macro::cached;
 use futures_lite::future::block_on;
 use futures_lite::{future::Boxed, FutureExt};
-use hyper::{body::Buf, header, Body, Request as HyperRequest, Response as HyperResponse};
+use hyper::{header, Body, Request as HyperRequest, Response as HyperResponse};
 use log::{error, info, trace, warn};
 use percent_encoding::{percent_encode, CONTROLS};
 use serde_json::Value;
@@ -424,9 +425,17 @@ fn comments_logical_path(path: &str) -> String {
 	format!("/r/{subreddit}/comments/{tail}")
 }
 
-/// Make a request to a Reddit API and parse the JSON response
-#[cached(size = 100, time = 30, result = true)]
+/// Make a request to a Reddit API and parse the JSON response. When Reddit
+/// fails transiently (rate limit, block, network), serve the last good copy of
+/// this response instead, if one is recent enough; see `stale`.
 pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
+	stale::or_copy(json_fresh(path.clone(), quarantine).await, &stale::key(&path, quarantine))
+}
+
+// Kept outside the 30 s cache below, so a copy served during a block is never
+// cached as if it were fresh.
+#[cached(size = 100, time = 30, result = true)]
+async fn json_fresh(path: String, quarantine: bool) -> Result<Value, String> {
 	// Closure to quickly build errors
 	let err = |msg: &str, e: String, path: String| -> Result<Value, String> {
 		// eprintln!("{} - {}: {}", url, msg, e);
@@ -481,19 +490,17 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 				return Err(rate_limit_error(reset));
 			}
 
-			// asynchronously aggregate the chunks of the body
-			match hyper::body::aggregate(response.into_hyper_response()).await {
+			// asynchronously collect the chunks of the body
+			match hyper::body::to_bytes(response.into_hyper_response()).await {
 				Ok(body) => {
-					let has_remaining = body.has_remaining();
-
-					if !has_remaining {
+					if body.is_empty() {
 						// Rate limited, so spawn a force_refresh_token()
 						tokio::spawn(force_refresh_token());
 						return Err(rate_limit_error(reset));
 					}
 
 					// Parse the response from Reddit as JSON
-					match serde_json::from_reader(body.reader()) {
+					match serde_json::from_slice(&body) {
 						Ok(value) => {
 							let json: Value = value;
 
@@ -534,6 +541,7 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 
 								Err(format!("Reddit error {} \"{}\": {} | {path}", json["error"], json["reason"], json["message"]))
 							} else {
+								stale::remember(stale::key(&path, quarantine), body);
 								Ok(json)
 							}
 						}

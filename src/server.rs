@@ -383,9 +383,15 @@ impl Server {
 							// Run the route's function
 							let func = (found.handler().to_owned().to_owned())(parammed);
 							async move {
-								match func.await {
+								let (result, stale_age) = crate::stale::scope(func).await;
+								match result {
 									Ok(mut res) => {
 										res.headers_mut().extend(def_headers);
+										if let Some(age) = stale_age {
+											// Built from a copy: say so, and keep shared caches from storing it.
+											res.headers_mut().insert("X-Redlib-Stale-Age", header::HeaderValue::from(age));
+											res.headers_mut().insert(header::CACHE_CONTROL, header::HeaderValue::from_static("no-store"));
+										}
 										if is_head {
 											*res.body_mut() = Body::empty();
 										} else {

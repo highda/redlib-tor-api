@@ -340,6 +340,18 @@ figcaption {
     margin-left: 10px;
 }
 
+/* Shown when Reddit is blocking us and the page was built from a saved copy */
+#stale_notice {
+    max-width: 960px;
+    margin: 10px auto 0;
+    padding: 8px 12px;
+    border-left: 3px solid var(--accent);
+    border-radius: 5px;
+    background: var(--post);
+    color: var(--text);
+    font-size: 0.9em;
+}
+
 main {
     display: flex;
     justify-content: center;

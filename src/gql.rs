@@ -8,6 +8,7 @@
 use crate::client::{json, CLIENT, OAUTH_CLIENT};
 use crate::oauth::force_refresh_token;
 use crate::reddit_urls;
+use crate::stale;
 use crate::utils::{format_url, param};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use cached::proc_macro::cached;
@@ -22,10 +23,20 @@ const POST_COMMENTS_HASH: &str = "314f29c2494fd78c7844ef2c6b09acb4bef5b37ab50b4d
 const COMMENT_COUNT: u32 = 200;
 const MAX_DEPTH: u32 = 10;
 
-/// Preserve the existing two-Listing response consumed by post::item. Fetch
-/// metadata first, so missing/private/quarantined posts retain their API errors.
-#[cached(size = 100, time = 30, result = true)]
+/// Preserve the existing two-Listing response consumed by post::item, or the
+/// last good copy of it while Reddit fails transiently (see `stale`).
 pub async fn thread(path: String, quarantine: bool) -> Result<Value, String> {
+	let key = stale_key(&path, quarantine);
+	stale::or_copy(thread_fresh(path, quarantine).await, &key)
+}
+
+fn stale_key(path: &str, quarantine: bool) -> String {
+	stale::key(&format!("gql:{path}"), quarantine)
+}
+
+/// Fetch metadata first, so missing/private/quarantined posts retain their API errors.
+#[cached(size = 100, time = 30, result = true)]
+async fn thread_fresh(path: String, quarantine: bool) -> Result<Value, String> {
 	let (id, comment_id) = parse_path(&path).ok_or("Invalid post path")?;
 	let post = json(format!("/by_id/t3_{id}.json?raw_json=1"), quarantine).await?;
 	let metadata = post["data"]["children"].as_array().and_then(|p| p.first()).ok_or("Post not found")?;
@@ -53,7 +64,11 @@ pub async fn thread(path: String, quarantine: bool) -> Result<Value, String> {
 		}
 	}
 	comments["data"]["sort"] = if sort == "best" { "confidence".into() } else { sort.into() };
-	Ok(json_value!([post, comments]))
+	let thread = json_value!([post, comments]);
+	if let Ok(body) = serde_json::to_vec(&thread) {
+		stale::remember(stale_key(&path, quarantine), body.into());
+	}
+	Ok(thread)
 }
 
 fn sort_type(sort: &str) -> Option<&'static str> {
