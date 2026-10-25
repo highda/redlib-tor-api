@@ -245,7 +245,14 @@ fn comment_listing(response: &Value, post_id: &str) -> Result<Value, String> {
 		.ok_or("Reddit returned no comment forest")?;
 	let next_page = trees.iter().find(|t| is_next_page(t));
 	let after = next_page.and_then(|t| t["more"]["cursor"].as_str()).map(|cursor| URL_SAFE_NO_PAD.encode(cursor));
-	let children = nest(trees.iter().filter(|t| !is_next_page(t)).filter_map(|t| item(t, post_id)).collect());
+	let children = nest(
+		trees
+			.iter()
+			.enumerate()
+			.filter(|(_, t)| !is_next_page(t))
+			.filter_map(|(i, t)| item(t, trees.get(i + 1), post_id))
+			.collect(),
+	);
 	let mut result = listing(children);
 	result["data"]["after"] = after.into();
 	result["data"]["after_count"] = next_page.and_then(|t| t["more"]["count"].as_i64()).into();
@@ -374,7 +381,8 @@ fn url_attr(value: Option<&str>) -> String {
 }
 
 /// Converts one entry of the comment forest to an item of the JSON API, with its depth.
-fn item(tree: &Value, post_id: &str) -> Option<(u64, Value)> {
+/// `next` is the entry after it, which names a deleted comment's id.
+fn item(tree: &Value, next: Option<&Value>, post_id: &str) -> Option<(u64, Value)> {
 	let depth = tree["depth"].as_u64()?;
 	let post_fullname = format!("t3_{post_id}");
 	let parent = tree["parentId"].as_str().filter(|p| p.starts_with("t1_")).unwrap_or(&post_fullname).to_string();
@@ -392,15 +400,28 @@ fn item(tree: &Value, post_id: &str) -> Option<(u64, Value)> {
 	}
 
 	let node = &tree["node"];
-	let fullname = node["id"].as_str().unwrap_or_default();
-	if node["__typename"] != "DeletedComment" && !fullname.strip_prefix("t1_").is_some_and(valid_id) {
+	let deleted = node["__typename"] == "DeletedComment";
+	let fullname = match node["id"].as_str() {
+		Some(id) => id,
+		// Deleted comments come without their id. An immediate reply (or the
+		// "more" stub of its replies) is next in the forest and names it as its
+		// parent. Without replies there is nothing to show.
+		None if deleted => next
+			.filter(|next| next["depth"].as_u64() == Some(depth + 1))
+			.and_then(|next| next["parentId"].as_str())?,
+		None => return None,
+	};
+	if !fullname.strip_prefix("t1_").is_some_and(valid_id) {
 		return None;
 	}
 	let author = node["authorInfo"]["name"].as_str().unwrap_or("[unknown]");
 	let content = &node["content"];
 
 	// The JSON API's representation of deleted and removed comments, which post.rs looks for
-	let (author, body, body_html) = if node["__typename"] == "DeletedComment" {
+	let (author, body, body_html) = if deleted && node["removedByCategory"].as_str().is_some_and(|c| c != "DELETED") {
+		// Removed by a moderator, Reddit or automation rather than by its author
+		("[deleted]", "[removed]", "<p>[removed]</p>".to_string())
+	} else if deleted {
 		("[deleted]", "[deleted]", "<p>[deleted]</p>".to_string())
 	} else if node["isAdminTakedown"] == true {
 		(author, "[ Removed by Reddit ]", String::new())
@@ -720,7 +741,7 @@ mod tests {
 			"score":18,"isStickied":true,"isScoreHidden":true,"distinguishedAs":"MODERATOR",
 			"authorFlair":{"text":"flair","textColor":"DARK","template":{"backgroundColor":"#fff"}}
 		}});
-		let (_, comment) = item(&tree, "p").unwrap();
+		let (_, comment) = item(&tree, None, "p").unwrap();
 		let data = &comment["data"];
 		assert_eq!(data["id"], "a");
 		assert_eq!(data["parent_id"], "t3_p");
@@ -734,7 +755,7 @@ mod tests {
 		assert_eq!(data["author_flair_text"], "flair");
 		let mut removed = tree;
 		removed["node"]["isRemoved"] = true.into();
-		assert_eq!(item(&removed, "p").unwrap().1["data"]["body"], "[removed]");
+		assert_eq!(item(&removed, None, "p").unwrap().1["data"]["body"], "[removed]");
 	}
 
 	#[test]
@@ -783,18 +804,31 @@ mod tests {
 	}
 
 	#[test]
+	fn deleted_comments_without_replies_are_dropped_and_removals_say_so() {
+		let deleted = |category: &str| json_value!({ "depth": 0, "parentId": null, "node": { "__typename": "DeletedComment", "removedByCategory": category } });
+		let reply = json_value!({ "depth": 1, "parentId": "t1_gone", "node": { "__typename": "Comment", "id": "t1_r", "authorInfo": { "name": "a" } } });
+		let more = json_value!({ "depth": 1, "parentId": "t1_gone", "more": { "count": 3, "cursor": "c" } });
+		assert!(item(&deleted("DELETED"), None, "p").is_none());
+		assert!(item(&deleted("DELETED"), Some(&deleted("DELETED")), "p").is_none(), "a sibling is not a reply");
+		let (_, by_author) = item(&deleted("DELETED"), Some(&reply), "p").unwrap();
+		assert_eq!((by_author["data"]["id"].as_str(), by_author["data"]["body"].as_str()), (Some("gone"), Some("[deleted]")));
+		let (_, by_moderator) = item(&deleted("MODERATOR"), Some(&more), "p").unwrap();
+		assert_eq!((by_moderator["data"]["id"].as_str(), by_moderator["data"]["body"].as_str()), (Some("gone"), Some("[removed]")));
+	}
+
+	#[test]
 	fn test_tree() {
 		let comment = |id: &str, depth: u64, parent: Option<&str>| json_value!({ "depth": depth, "parentId": parent, "node": { "__typename": "Comment", "id": id, "authorInfo": { "name": "a" } } });
 		let trees = [
 			comment("t1_a", 0, None),
-			// Deleted comments have no ID; their replies nest by depth
+			// Deleted comments have no ID; their reply names it
 			json_value!({ "depth": 1, "parentId": "t1_a", "node": { "__typename": "DeletedComment" } }),
 			comment("t1_c", 2, Some("t1_x")),
 			json_value!({ "depth": 1, "parentId": "t1_a", "more": { "count": 5, "cursor": "c1" } }),
 			comment("t1_d", 0, None),
 			json_value!({ "depth": 0, "parentId": null, "more": { "count": 90, "cursor": "c2" } }),
 		];
-		let comments = nest(trees.iter().filter_map(|t| item(t, "p")).collect());
+		let comments = nest(trees.iter().enumerate().filter_map(|(i, t)| item(t, trees.get(i + 1), "p")).collect());
 		assert_eq!(comments.len(), 3);
 
 		let a = &comments[0]["data"];
@@ -802,6 +836,8 @@ mod tests {
 		let replies = a["replies"]["data"]["children"].as_array().unwrap();
 		assert_eq!(replies.len(), 2);
 		assert_eq!(replies[0]["data"]["author"], "[deleted]");
+		assert_eq!(replies[0]["data"]["id"], "x");
+		assert_eq!(replies[0]["data"]["name"], "t1_x");
 		assert_eq!(replies[0]["data"]["replies"]["data"]["children"][0]["data"]["id"], "c");
 		assert_eq!(replies[1]["kind"], "more");
 		assert_eq!(replies[1]["data"]["parent_id"], "t1_a");
