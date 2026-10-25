@@ -468,6 +468,19 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 				None
 			};
 
+			// Go by status first: without the .json suffix, Reddit's 401 is not
+			// necessarily JSON, and a JSON 429 did not lead to a refresh.
+			let challenge = response.headers().get(wreq_header::WWW_AUTHENTICATE).and_then(|val| val.to_str().ok());
+			if credential_rejected(status.as_u16(), challenge) {
+				error!("Reddit rejected the OAuth token ({status}). Spawning force_refresh_token()");
+				tokio::spawn(force_refresh_token());
+				return Err("OAuth token has expired. Please refresh the page!".to_string());
+			}
+			if status.as_u16() == 429 {
+				tokio::spawn(force_refresh_token());
+				return Err(rate_limit_error(reset));
+			}
+
 			// asynchronously aggregate the chunks of the body
 			match hyper::body::aggregate(response.into_hyper_response()).await {
 				Ok(body) => {
@@ -476,13 +489,7 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 					if !has_remaining {
 						// Rate limited, so spawn a force_refresh_token()
 						tokio::spawn(force_refresh_token());
-						return match reset {
-							Some(val) => Err(format!(
-								"Reddit rate limit exceeded. Try refreshing in a few seconds.\
-								 Rate limit will reset in: {val}"
-							)),
-							None => Err("Reddit rate limit exceeded".to_string()),
-						};
+						return Err(rate_limit_error(reset));
 					}
 
 					// Parse the response from Reddit as JSON
@@ -541,6 +548,27 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 		}
 		Err(e) => err("Couldn't send request to Reddit", e, path),
 	}
+}
+
+fn rate_limit_error(reset: Option<String>) -> String {
+	match reset {
+		Some(val) => format!(
+			"Reddit rate limit exceeded. Try refreshing in a few seconds.\
+			 Rate limit will reset in: {val}"
+		),
+		None => "Reddit rate limit exceeded".to_string(),
+	}
+}
+
+/// Whether Reddit refused the token itself: a 401, or a 403 whose Bearer
+/// challenge says `invalid_token` (other 403s are blocks, not expiry).
+fn credential_rejected(status: u16, challenge: Option<&str>) -> bool {
+	status == 401
+		|| status == 403
+			&& challenge.is_some_and(|challenge| {
+				let challenge = challenge.to_ascii_lowercase();
+				challenge.starts_with("bearer ") && challenge.contains("error=\"invalid_token\"")
+			})
 }
 
 /// Builds the user-facing error for a response that Reddit did not send as JSON.
@@ -749,6 +777,16 @@ mod tests {
 			non_json_response_error(502, "expected value at line 1 column 1", "/r/x/hot.json"),
 			"Reddit is having issues, check if there's an outage"
 		);
+	}
+
+	#[test]
+	fn test_only_token_rejections_count_as_expired_tokens() {
+		assert!(credential_rejected(401, None));
+		assert!(credential_rejected(403, Some("Bearer error=\"invalid_token\"")));
+		assert!(credential_rejected(403, Some("bearer realm=\"reddit\", error=\"invalid_token\"")));
+		assert!(!credential_rejected(403, None));
+		assert!(!credential_rejected(403, Some("Bearer error=\"insufficient_scope\"")));
+		assert!(!credential_rejected(429, Some("Bearer error=\"invalid_token\"")));
 	}
 
 	#[test]
