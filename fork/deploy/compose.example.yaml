@@ -50,8 +50,10 @@ services:
       REDLIB_USE_REDDIT_ONION: "on"
       REDLIB_RAW_TOKEN: ${REDLIB_RAW_TOKEN:?set REDLIB_RAW_TOKEN}
       REDLIB_ROBOTS_DISABLE_INDEXING: "on"
-      # AGPL source offer for your users (Redlib's footer links to upstream Redlib):
+      # AGPL source offer for your users. The footer's code link and the update check on
+      # error pages use REDLIB_SOURCE_URL (default: this fork); set it if you run changes.
       REDLIB_BANNER: "Source: https://github.com/highda/redlib-tor-api"
+      # REDLIB_SOURCE_URL: "https://github.com/you/redlib-tor-api"
       # Optional browser gate for the web UI (never applies to the API or /media/):
       # REDLIB_FINGERPRINTING: "on"
       # REDLIB_FINGERPRINT_SECRET: ${REDLIB_FINGERPRINT_SECRET}

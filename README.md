@@ -426,7 +426,7 @@ Assign a default value for each instance-specific setting by passing environment
 | `FINGERPRINT_MAX_AGE_SECONDS` | Integer      | `86400`                | How long a successful fingerprint validation is trusted.                                                   |
 | `FINGERPRINT_SCORE_THRESHOLD` | Integer      | `50`                   | Fingerprint rejection threshold; lower values block more aggressively.                                     |
 | `FINGERPRINT_BLOCKLIST`   | Comma-separated hex IDs | (empty)        | Fingerprint IDs to always reject.                                                                          |
-| `SOURCE_URL`              | String          | `https://github.com/redlib-org/redlib` | Source code link in the footer, and the GitHub repository whose `main` branch the update check on error pages compares against. |
+| `SOURCE_URL`              | String          | `https://github.com/highda/redlib-tor-api` | Source code link in the footer, and the GitHub repository whose `main` branch the update check on error pages compares against. |
 
 ## Default user settings
 
