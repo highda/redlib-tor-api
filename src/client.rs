@@ -676,7 +676,7 @@ async fn fetch_json_once(path: String, quarantine: bool) -> Result<Value, String
 				Err(e) => err("Failed receiving body from Reddit", e.to_string(), path),
 			}
 		}
-		Err(e) => err("Couldn't send request to Reddit", e, path),
+		Err(e) => Err(send_error(e, &path)),
 	}
 }
 
@@ -686,12 +686,23 @@ async fn fetch_json_once(path: String, quarantine: bool) -> Result<Value, String
 async fn send_with_retry(path: String, quarantine: bool) -> Result<WreqResponse, String> {
 	let started = std::time::Instant::now();
 	match reddit_get(path.clone(), quarantine).await {
-		Err(e) if started.elapsed() < TRANSPORT_RETRY_WITHIN => {
+		Err(e) if e != OAUTH_NOT_READY && started.elapsed() < TRANSPORT_RETRY_WITHIN => {
 			warn!("Couldn't send request to Reddit ({e}), retrying once | {path}");
 			tokio::time::sleep(TRANSPORT_RETRY_DELAY).await;
 			reddit_get(path, quarantine).await
 		}
 		other => other,
+	}
+}
+
+/// The error for a request that never reached Reddit. "Still connecting"
+/// stays as it is, so that it maps to 503 and is not counted as a network
+/// failure (it used to arrive as "Couldn't send request to Reddit: ...").
+fn send_error(e: String, path: &str) -> String {
+	if e == OAUTH_NOT_READY {
+		e
+	} else {
+		format!("Couldn't send request to Reddit: {e} | {path}")
 	}
 }
 
@@ -986,6 +997,17 @@ mod tests {
 		assert!(!is_about("/r/rust/hot.json?q=/about.json"));
 		assert!(!is_about("/r/rust/about/rules.json"));
 		assert!(!is_about("/search.json?q=x/about.json"));
+	}
+
+	#[test]
+	fn test_not_ready_is_not_reported_as_a_send_failure() {
+		let not_ready = send_error(OAUTH_NOT_READY.to_string(), "/r/rust/hot.json");
+		assert_eq!(crate::utils::reddit_error_status(&not_ready), Some(503));
+		assert_eq!(crate::utils::retry_after(&not_ready, 503), Some(30));
+		assert!(stale::is_transient(&not_ready));
+		let broken = send_error("connection reset".to_string(), "/r/rust/hot.json");
+		assert_eq!(broken, "Couldn't send request to Reddit: connection reset | /r/rust/hot.json");
+		assert_eq!(crate::utils::reddit_error_status(&broken), Some(502));
 	}
 
 	#[test]
