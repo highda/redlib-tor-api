@@ -43,6 +43,8 @@ fn post_comments_hash() -> &'static str {
 }
 const COMMENT_COUNT: u32 = 200;
 const MAX_DEPTH: u32 = 10;
+/// Longest pagination cursor accepted from a visitor.
+pub(crate) const MAX_CURSOR_LEN: usize = 8192;
 
 /// Preserve the existing two-Listing response consumed by post::item, or the
 /// last good copy of it while Reddit fails transiently (see `stale`).
@@ -80,11 +82,8 @@ async fn fetch_thread(path: String, quarantine: bool) -> Result<Value, String> {
 	let (id, comment_id) = parse_path(&path).ok_or("Invalid post path")?;
 	let post_path = format!("/by_id/t3_{id}.json?raw_json=1");
 	let comments_query = |sort: &str| -> Result<_, String> {
-		let body = json_value!({
-		 "operationName": "PostComments", "variables": variables(&id, comment_id.as_deref(), &path, sort)?,
-		 "extensions": { "persistedQuery": { "version": 1, "sha256Hash": post_comments_hash() } }
-		});
-		Ok(async move { query(&body).await })
+		let variables = variables(&id, comment_id.as_deref(), &path, sort)?;
+		Ok(async move { query("PostComments", post_comments_hash(), &variables).await })
 	};
 	// With a sort given, the comments do not depend on the post's metadata:
 	// fetch both at once, one onion round trip instead of two. The post's
@@ -158,7 +157,7 @@ fn variables(id: &str, comment_id: Option<&str>, path: &str, sort: &str) -> Resu
 		});
 	}
 	if let Some(cursor) = param(path, "cursor") {
-		if cursor.len() > 8192 {
+		if cursor.len() > MAX_CURSOR_LEN {
 			return Err("Invalid comments cursor".into());
 		}
 		let cursor = URL_SAFE_NO_PAD
@@ -171,32 +170,55 @@ fn variables(id: &str, comment_id: Option<&str>, path: &str, sort: &str) -> Resu
 	Ok(variables)
 }
 
-async fn query(body: &Value) -> Result<Value, String> {
+/// Runs a persisted query. Fields that time out upstream come back null with an
+/// error next to the data; one retry usually fills them in, and what is there
+/// is used if it doesn't.
+pub(crate) async fn query(operation: &str, hash: &str, variables: &Value) -> Result<Value, String> {
 	oauth_ready().await?;
+	let body = json_value!({
+		"operationName": operation,
+		"variables": variables,
+		"extensions": { "persistedQuery": { "version": 1, "sha256Hash": hash } },
+	});
 	for attempt in 0..2 {
+		let token = OAUTH_CLIENT.load_full();
 		let mut builder = CLIENT.post(reddit_urls::gql_url()).timeout(Duration::from_secs(20));
-		for (key, value) in &OAUTH_CLIENT.load_full().headers_map {
+		for (key, value) in &token.headers_map {
 			if !key.eq_ignore_ascii_case("content-type") {
 				builder = builder.header(key, value);
 			}
 		}
-		let response = builder.json(body).send().await.map_err(|e| format!("Reddit comments request failed: {e}"))?;
+		let response = match builder.json(&body).send().await {
+			Ok(response) => response,
+			// A circuit that broke or stalled; the next attempt gets another one
+			Err(e) if attempt == 0 => {
+				warn!("Reddit GraphQL {operation} request failed ({e}), retrying once");
+				continue;
+			}
+			Err(e) => return Err(format!("Reddit GraphQL {operation} request failed: {e}")),
+		};
 		let status = response.status();
 		let header = |name: &str| response.headers().get(name).and_then(|v| v.to_str().ok()).unwrap_or("?").to_owned();
 		trace!(
-			"GraphQL {status}, rate limit remaining {}, used {}, resets in {}",
+			"GraphQL {operation} {status}, rate limit remaining {}, used {}, resets in {}",
 			header("x-ratelimit-remaining"),
 			header("x-ratelimit-used"),
 			header("x-ratelimit-reset")
 		);
+		// GraphQL has its own quota per token, which the JSON API's counter does not see
+		let remaining = header("x-ratelimit-remaining").parse::<f32>().ok();
+		if remaining.is_some_and(|r| r < GRAPHQL_REFRESH_BELOW) && std::sync::Arc::ptr_eq(&token, &OAUTH_CLIENT.load_full()) {
+			tokio::spawn(force_refresh_token());
+		}
 		if !status.is_success() {
 			return Err(match status.as_u16() {
 				401 => expired_token(),
+				403 => format!("Reddit blocked this request (403 Forbidden) | {operation}"),
 				429 => RATE_LIMITED.to_string(),
-				_ => format!("Reddit comments request returned {status}"),
+				_ => format!("Reddit GraphQL {operation} returned {status}"),
 			});
 		}
-		let response: Value = response.json().await.map_err(|_| "Reddit returned an invalid comments response")?;
+		let response: Value = response.json().await.map_err(|_| format!("Reddit GraphQL {operation} answered without JSON"))?;
 		let Some(error) = response["errors"].as_array().and_then(|errors| errors.first()) else {
 			return Ok(response);
 		};
@@ -204,9 +226,9 @@ async fn query(body: &Value) -> Result<Value, String> {
 			ErrorKind::Auth => return Err(expired_token()),
 			ErrorKind::RateLimit => return Err(RATE_LIMITED.to_string()),
 			ErrorKind::NotFound => return Err("Post not found".to_string()),
-			// Upstream sometimes times out individual fields while returning HTTP 200.
-			ErrorKind::Other if attempt == 0 => continue,
-			ErrorKind::Other => return Err(format!("Reddit comments API error: {}", response["errors"])),
+			ErrorKind::Other if attempt == 0 => {}
+			ErrorKind::Other if response["data"].is_null() => return Err(format!("Reddit GraphQL {operation} error: {}", response["errors"])),
+			ErrorKind::Other => return Ok(response),
 		}
 	}
 	unreachable!()
@@ -229,6 +251,8 @@ fn error_kind(error: &Value) -> ErrorKind {
 		_ => ErrorKind::Other,
 	}
 }
+
+const GRAPHQL_REFRESH_BELOW: f32 = 30.0;
 
 const RATE_LIMITED: &str = "Reddit rate limit exceeded. Try refreshing in a few seconds.";
 
@@ -353,18 +377,19 @@ pub(crate) fn parse_path(path: &str) -> Option<(String, Option<String>)> {
 		rest.strip_prefix("comments/")?
 	};
 	let parts: Vec<_> = tail.trim_end_matches('/').split('/').collect();
-	if parts.len() > 3 || !valid_id(parts[0]) {
+	if parts.len() > 3 || !is_id(parts[0]) {
 		return None;
 	}
 	let comment = parts.get(2).copied().filter(|s| !s.is_empty());
-	if comment.is_some_and(|s| !valid_id(s)) {
+	if comment.is_some_and(|s| !is_id(s)) {
 		return None;
 	}
 	Some((parts[0].into(), comment.map(str::to_owned)))
 }
 
-fn valid_id(id: &str) -> bool {
-	!id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric())
+/// A post or comment ID (without its `t3_`/`t1_` prefix)
+pub(crate) fn is_id(id: &str) -> bool {
+	!id.is_empty() && id.len() <= 32 && id.bytes().all(|b| b.is_ascii_alphanumeric())
 }
 
 /// Only HTTP(S) and local links may appear in rendered comment attributes.
@@ -407,12 +432,10 @@ fn item(tree: &Value, next: Option<&Value>, post_id: &str) -> Option<(u64, Value
 		// Deleted comments come without their id. An immediate reply (or the
 		// "more" stub of its replies) is next in the forest and names it as its
 		// parent. Without replies there is nothing to show.
-		None if deleted => next
-			.filter(|next| next["depth"].as_u64() == Some(depth + 1))
-			.and_then(|next| next["parentId"].as_str())?,
+		None if deleted => next.filter(|next| next["depth"].as_u64() == Some(depth + 1)).and_then(|next| next["parentId"].as_str())?,
 		None => return None,
 	};
-	if !fullname.strip_prefix("t1_").is_some_and(valid_id) {
+	if !fullname.strip_prefix("t1_").is_some_and(is_id) {
 		return None;
 	}
 	let author = node["authorInfo"]["name"].as_str().unwrap_or("[unknown]");
@@ -429,31 +452,11 @@ fn item(tree: &Value, next: Option<&Value>, post_id: &str) -> Option<(u64, Value
 	} else if node["isRemoved"] == true {
 		("[deleted]", "[removed]", String::new())
 	} else {
-		let richtext: Value = content["richtext"].as_str().and_then(|r| serde_json::from_str(r).ok()).unwrap_or_default();
-		let html = if richtext["document"].is_array() {
-			render(&richtext["document"], &content["richtextMedia"])
-		} else {
-			format!("<p>{}</p>", htmlescape::encode_minimal(content["markdown"].as_str().unwrap_or_default()))
-		};
-		(author, content["markdown"].as_str().unwrap_or_default(), html)
+		(author, content["markdown"].as_str().unwrap_or_default(), content_html(content))
 	};
 
 	let flair = &node["authorFlair"];
-	let flair_richtext: Value = flair["richtext"].as_str().and_then(|r| serde_json::from_str(r).ok()).unwrap_or_default();
-	let flair_type = if flair_richtext.as_array().is_some_and(|r| !r.is_empty()) {
-		"richtext"
-	} else if flair["text"].as_str().is_some_and(|t| !t.is_empty()) {
-		"text"
-	} else {
-		""
-	};
-
-	let awards: Vec<Value> = node["awardings"]
-		.as_array()
-		.into_iter()
-		.flatten()
-		.map(|a| json_value!({ "name": a["award"]["name"], "count": a["total"], "resized_icons": [{ "url": a["award"]["static_icon_16"]["url"] }] }))
-		.collect();
+	let (flair_type, flair_richtext) = flair_parts(flair);
 
 	Some((
 		depth,
@@ -477,7 +480,7 @@ fn item(tree: &Value, next: Option<&Value>, post_id: &str) -> Option<(u64, Value
 				"author_flair_text": flair["text"],
 				"author_flair_background_color": flair["template"]["backgroundColor"],
 				"author_flair_text_color": flair["textColor"].as_str().map(str::to_lowercase),
-				"all_awardings": awards,
+				"all_awardings": awards(&node["awardings"]),
 				"parent_id": parent,
 				"replies": "",
 			}
@@ -485,8 +488,53 @@ fn item(tree: &Value, next: Option<&Value>, post_id: &str) -> Option<(u64, Value
 	))
 }
 
-fn timestamp(value: &Value) -> Option<f64> {
-	DateTime::parse_from_str(value.as_str()?, "%Y-%m-%dT%H:%M:%S%.f%z").ok().map(|t| t.timestamp() as f64)
+/// A flair's type and richtext, as the JSON API's `*_flair_type` and `*_flair_richtext`.
+pub(crate) fn flair_parts(flair: &Value) -> (&'static str, Value) {
+	let richtext: Value = flair["richtext"].as_str().and_then(|r| serde_json::from_str(r).ok()).unwrap_or_default();
+	let kind = if richtext.as_array().is_some_and(|r| !r.is_empty()) {
+		"richtext"
+	} else if flair["text"].as_str().is_some_and(|t| !t.is_empty()) {
+		"text"
+	} else {
+		""
+	};
+	(kind, richtext)
+}
+
+/// Awardings as the JSON API's `all_awardings`.
+pub(crate) fn awards(awardings: &Value) -> Vec<Value> {
+	awardings
+		.as_array()
+		.into_iter()
+		.flatten()
+		.map(|a| {
+			// Feeds sometimes only have the animated icon
+			let award = &a["award"];
+			let icon = award["static_icon_16"]["url"].as_str().or(award["icon_16"]["url"].as_str());
+			json_value!({ "name": award["name"], "count": a["total"], "resized_icons": [{ "url": icon }] })
+		})
+		.collect()
+}
+
+/// A comment's, post's or page's `content` as HTML: its richtext, else its
+/// markdown as escaped plain text.
+pub(crate) fn content_html(content: &Value) -> String {
+	let richtext: Value = content["richtext"].as_str().and_then(|r| serde_json::from_str(r).ok()).unwrap_or_default();
+	if richtext["document"].is_array() {
+		return render(&richtext["document"], &content["richtextMedia"]);
+	}
+	match content["markdown"].as_str().filter(|m| !m.is_empty()) {
+		Some(markdown) => format!("<p>{}</p>", htmlescape::encode_minimal(markdown)),
+		None => String::new(),
+	}
+}
+
+pub(crate) fn timestamp(value: &Value) -> Option<f64> {
+	let timestamp = value.as_str()?;
+	DateTime::parse_from_rfc3339(timestamp)
+		.or_else(|_| DateTime::parse_from_str(timestamp, "%Y-%m-%dT%H:%M:%S%.f%z"))
+		.ok()
+		.map(|t| t.timestamp() as f64)
 }
 
 /// Builds the reply tree from items in depth-first order. Goes by depth rather
@@ -814,7 +862,10 @@ mod tests {
 		let (_, by_author) = item(&deleted("DELETED"), Some(&reply), "p").unwrap();
 		assert_eq!((by_author["data"]["id"].as_str(), by_author["data"]["body"].as_str()), (Some("gone"), Some("[deleted]")));
 		let (_, by_moderator) = item(&deleted("MODERATOR"), Some(&more), "p").unwrap();
-		assert_eq!((by_moderator["data"]["id"].as_str(), by_moderator["data"]["body"].as_str()), (Some("gone"), Some("[removed]")));
+		assert_eq!(
+			(by_moderator["data"]["id"].as_str(), by_moderator["data"]["body"].as_str()),
+			(Some("gone"), Some("[removed]"))
+		);
 	}
 
 	#[test]

@@ -43,6 +43,8 @@ const MEDIA_HOSTS: &[&str] = &[
 	"v.redd.it",
 	"preview.redd.it",
 	"external-preview.redd.it",
+	"packaged-media.redd.it",
+	"external-packaged-media.redd.it",
 	"a.thumbs.redditmedia.com",
 	"b.thumbs.redditmedia.com",
 	"emoji.redditmedia.com",
@@ -359,7 +361,7 @@ mod tests {
 		assert_eq!(error_status("banned"), 404);
 		assert_eq!(error_status("Reddit rate limit exceeded"), 429);
 		assert_eq!(error_status("Too many requests."), 429);
-		assert_eq!(error_status("Reddit comments request returned 429 Too Many Requests"), 429);
+		assert_eq!(error_status("Reddit GraphQL PostComments returned 429 Too Many Requests"), 429);
 		assert_eq!(error_status("Post not found"), 404);
 		assert_eq!(error_status("OAuth token has expired. Please refresh the page!"), 503);
 		assert_eq!(error_status("Couldn't send request to Reddit: boom | /x"), 502);
@@ -370,7 +372,10 @@ mod tests {
 	#[test]
 	fn retry_after_comes_from_reddits_reset() {
 		use crate::utils::retry_after;
-		assert_eq!(retry_after("Reddit rate limit exceeded. Try refreshing in a few seconds.Rate limit will reset in: 233.4", 429), Some(234));
+		assert_eq!(
+			retry_after("Reddit rate limit exceeded. Try refreshing in a few seconds.Rate limit will reset in: 233.4", 429),
+			Some(234)
+		);
 		assert_eq!(retry_after("Reddit rate limit exceeded", 429), Some(30));
 		assert_eq!(retry_after("OAuth token has expired. Please refresh the page!", 503), Some(30));
 		assert_eq!(retry_after("Couldn't send request to Reddit", 502), None);

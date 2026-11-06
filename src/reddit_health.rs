@@ -48,7 +48,7 @@ fn outcome_of(error: Option<&str>) -> Option<Outcome> {
 	let lower = error.to_ascii_lowercase();
 	Some(if lower.contains("rate limit") || lower.contains("too many requests") {
 		Outcome::RateLimited
-	} else if ["Reddit blocked this request", "Failed to parse page JSON data", "OAuth token has expired", "Reddit returned an invalid comments response"]
+	} else if ["Reddit blocked this request", "Failed to parse page JSON data", "OAuth token has expired"]
 		.iter()
 		.any(|p| error.starts_with(p))
 	{
@@ -58,8 +58,7 @@ fn outcome_of(error: Option<&str>) -> Option<Outcome> {
 		"Failed receiving body from Reddit",
 		"Reddit is having issues",
 		"Too many redirects from Reddit",
-		"Reddit comments request",
-		"Reddit comments API error",
+		"Reddit GraphQL",
 	]
 	.iter()
 	.any(|p| error.starts_with(p))
@@ -139,7 +138,7 @@ mod tests {
 		assert_eq!(outcome_of(Some("Reddit blocked this request (403 Forbidden) | /r/x")), Some(Outcome::Blocked));
 		assert_eq!(outcome_of(Some("Reddit rate limit exceeded")), Some(Outcome::RateLimited));
 		assert_eq!(outcome_of(Some("Couldn't send request to Reddit: timeout | /r/x")), Some(Outcome::Network));
-		assert_eq!(outcome_of(Some("Reddit comments request returned 502 Bad Gateway")), Some(Outcome::Network));
+		assert_eq!(outcome_of(Some("Reddit GraphQL PostComments returned 502 Bad Gateway")), Some(Outcome::Network));
 		assert_eq!(outcome_of(Some("Reddit error 404 \"\": \"Not Found\" | /r/x")), None);
 		assert_eq!(outcome_of(Some("private")), None);
 		assert_eq!(outcome_of(Some(crate::client::OAUTH_NOT_READY)), None);

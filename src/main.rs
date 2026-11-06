@@ -14,7 +14,6 @@ use redlib::server::{self, RequestExt};
 use redlib::utils::{error, get_source_url, redirect, ThemeAssets};
 use redlib::{config, duplicates, fingerprint, headers, instance_info, post, search, settings, subreddit, user};
 
-
 // Create Services
 
 // Required for the manifest to be valid
@@ -271,6 +270,11 @@ async fn main() {
 	app.at("/instances.json").get(|_| async move { proxy_instances().await }.boxed());
 
 	// Proxy media through Redlib
+	// Reddit's muxed MP4s, with sound, which GraphQL links to.
+	app.at("/packaged/*path").get(|r| proxy(r, "https://packaged-media.redd.it/{path}").boxed());
+	app
+		.at("/packaged-external/*path")
+		.get(|r| proxy(r, "https://external-packaged-media.redd.it/{path}").boxed());
 	app.at("/vid/:id/dash/:size").get(|r| proxy(r, "https://v.redd.it/{id}/DASH_{size}").boxed());
 	app.at("/vid/:id/cmaf/:size").get(|r| proxy(r, "https://v.redd.it/{id}/CMAF_{size}").boxed());
 	app.at("/hls/:id/*path").get(|r| proxy(r, "https://v.redd.it/{id}/{path}").boxed());

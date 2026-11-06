@@ -9,6 +9,8 @@ const PROXIED_HOSTS = new Set([
   'v.redd.it',
   'preview.redd.it',
   'external-preview.redd.it',
+  'packaged-media.redd.it',
+  'external-packaged-media.redd.it',
   'a.thumbs.redditmedia.com',
   'b.thumbs.redditmedia.com',
   'emoji.redditmedia.com',

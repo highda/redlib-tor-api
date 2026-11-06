@@ -1,8 +1,12 @@
+// Proving `Send` through the nested async calls of `gql_feed` goes deeper than the default of 128.
+#![recursion_limit = "256"]
+
 pub mod client;
 pub mod config;
 pub mod duplicates;
 pub mod fingerprint;
 mod gql;
+pub(crate) mod gql_feed;
 pub mod instance_info;
 pub mod oauth;
 pub mod oauth_resources;

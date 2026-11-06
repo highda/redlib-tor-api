@@ -91,13 +91,13 @@ body %}
         <footer>
             {% if ends.0 != "" %}
             <a
-                href="?sort={{ sort.0 }}&t={{ sort.1 }}&before={{ ends.0 }}"
+                href="?sort={{ sort.0 }}&t={{ sort.1 }}&before={{ ends.0|urlencode_strict }}"
                 accesskey="P"
                 >PREV</a
             >
             {% endif %} {% if ends.1 != "" %}
             <a
-                href="?sort={{ sort.0 }}&t={{ sort.1 }}&after={{ ends.1 }}"
+                href="?sort={{ sort.0 }}&t={{ sort.1 }}&after={{ ends.1|urlencode_strict }}"
                 accesskey="N"
                 >NEXT</a
             >

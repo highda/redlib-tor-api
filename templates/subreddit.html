@@ -73,11 +73,11 @@
 
 			<footer>
 				{% if !ends.0.is_empty() %}
-				<a href="?sort={{ sort.0 }}&t={{ sort.1 }}&before={{ ends.0 }}" accesskey="P">PREV</a>
+				<a href="?sort={{ sort.0 }}&t={{ sort.1 }}&before={{ ends.0|urlencode_strict }}" accesskey="P">PREV</a>
 				{% endif %}
 
 				{% if !ends.1.is_empty() %}
-				<a href="?sort={{ sort.0 }}&t={{ sort.1 }}&after={{ ends.1 }}{% if !geo_filter.is_empty() %}&geo_filter={{ geo_filter }}{% endif %}" accesskey="N">NEXT</a>
+				<a href="?sort={{ sort.0 }}&t={{ sort.1 }}&after={{ ends.1|urlencode_strict }}{% if !geo_filter.is_empty() %}&geo_filter={{ geo_filter }}{% endif %}" accesskey="N">NEXT</a>
 				{% endif %}
 			</footer>
 		</div>

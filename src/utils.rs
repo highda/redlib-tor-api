@@ -112,14 +112,15 @@ pub struct Author {
 pub struct Poll {
 	pub poll_options: Vec<PollOption>,
 	pub voting_end_timestamp: (String, String),
-	pub total_vote_count: u64,
+	/// Missing from GraphQL posts fetched by ID.
+	pub total_vote_count: Option<u64>,
 }
 
 impl Poll {
 	pub fn parse(poll_data: &Value) -> Option<Self> {
 		poll_data.as_object()?;
 
-		let total_vote_count = poll_data["total_vote_count"].as_u64()?;
+		let total_vote_count = poll_data["total_vote_count"].as_u64();
 		// voting_end_timestamp is in the format of milliseconds
 		let voting_end_timestamp = time(poll_data["voting_end_timestamp"].as_f64()? / 1000.0);
 		let poll_options = PollOption::parse(&poll_data["options"])?;
@@ -1029,6 +1030,10 @@ static REGEX_URL_PREVIEW: LazyLock<Regex> =
 	LazyLock::new(|| Regex::new(r"https?://preview\.(?:redd\.it|redditdotzhmh3mao6r5i2j7speppwqkizwo7vksy3mbz5iz7rlhocyd\.onion)/(.*)").unwrap());
 static REGEX_URL_EXTERNAL_PREVIEW: LazyLock<Regex> =
 	LazyLock::new(|| Regex::new(r"https?://external\-preview\.(?:redd\.it|redditdotzhmh3mao6r5i2j7speppwqkizwo7vksy3mbz5iz7rlhocyd\.onion)/(.*)").unwrap());
+static REGEX_URL_PACKAGED_MEDIA: LazyLock<Regex> =
+	LazyLock::new(|| Regex::new(r"https?://packaged\-media\.(?:redd\.it|redditdotzhmh3mao6r5i2j7speppwqkizwo7vksy3mbz5iz7rlhocyd\.onion)/(.*)").unwrap());
+static REGEX_URL_EXTERNAL_PACKAGED_MEDIA: LazyLock<Regex> =
+	LazyLock::new(|| Regex::new(r"https?://external\-packaged\-media\.(?:redd\.it|redditdotzhmh3mao6r5i2j7speppwqkizwo7vksy3mbz5iz7rlhocyd\.onion)/(.*)").unwrap());
 static REGEX_URL_STYLES: LazyLock<Regex> =
 	LazyLock::new(|| Regex::new(r"https?://styles\.(?:redditmedia\.com|reddit4hkhcpcf2mkmuotdlk3gknuzcatsw4f7dx7twdkwmtrt6ax4qd\.onion)/(.*)").unwrap());
 static REGEX_URL_STATIC_MEDIA: LazyLock<Regex> =
@@ -1104,6 +1109,10 @@ pub fn format_url(url: &str) -> String {
 					domain if domain == format!("preview.{REDDIT_DOT_ONION}") => capture(&REGEX_URL_PREVIEW, "/preview/pre/", 1),
 					"external-preview.redd.it" => capture(&REGEX_URL_EXTERNAL_PREVIEW, "/preview/external-pre/", 1),
 					domain if domain == format!("external-preview.{REDDIT_DOT_ONION}") => capture(&REGEX_URL_EXTERNAL_PREVIEW, "/preview/external-pre/", 1),
+					"packaged-media.redd.it" => capture(&REGEX_URL_PACKAGED_MEDIA, "/packaged/", 1),
+					domain if domain == format!("packaged-media.{REDDIT_DOT_ONION}") => capture(&REGEX_URL_PACKAGED_MEDIA, "/packaged/", 1),
+					"external-packaged-media.redd.it" => capture(&REGEX_URL_EXTERNAL_PACKAGED_MEDIA, "/packaged-external/", 1),
+					domain if domain == format!("external-packaged-media.{REDDIT_DOT_ONION}") => capture(&REGEX_URL_EXTERNAL_PACKAGED_MEDIA, "/packaged-external/", 1),
 					"styles.redditmedia.com" => capture(&REGEX_URL_STYLES, "/style/", 1),
 					domain if domain == format!("styles.{REDDIT_MEDIA_ONION}") => capture(&REGEX_URL_STYLES, "/style/", 1),
 					"www.redditstatic.com" => capture(&REGEX_URL_STATIC_MEDIA, "/static/", 1),
@@ -1372,6 +1381,8 @@ pub fn reddit_error_status(msg: &str) -> Option<u16> {
 		"Unsupported comment sort" | "Invalid comments cursor" => 400,
 		"private" | "quarantined" | "gated" => 403,
 		"banned" | "suspended" | "Post not found" | "Comment not found" => 404,
+		_ if msg.ends_with(" doesn't exist") => 404,
+		_ if msg.starts_with("Unsupported ") || msg.starts_with("Invalid ") => 400,
 		_ if lower.contains("rate limit") || lower.contains("too many requests") => 429,
 		_ if msg.starts_with("OAuth token has expired") || msg == crate::client::OAUTH_NOT_READY => 503,
 		_ if msg.starts_with("Reddit blocked this request")
@@ -1380,7 +1391,7 @@ pub fn reddit_error_status(msg: &str) -> Option<u16> {
 			|| msg.starts_with("Failed to parse page JSON data")
 			|| msg.starts_with("Reddit is having issues")
 			|| msg.starts_with("Too many redirects from Reddit")
-			|| msg.starts_with("Reddit comments")
+			|| msg.starts_with("Reddit GraphQL")
 			|| msg.starts_with("Reddit returned") =>
 		{
 			502

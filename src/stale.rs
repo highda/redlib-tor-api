@@ -140,7 +140,7 @@ fn describe_age(secs: u64) -> String {
 /// Errors from `client::json` that mean "Reddit didn't answer properly right
 /// now", as opposed to a real answer about the content.
 pub fn is_transient(err: &str) -> bool {
-	const TRANSIENT: [&str; 12] = [
+	const TRANSIENT: [&str; 10] = [
 		"Reddit rate limit exceeded",
 		"Couldn't send request to Reddit",
 		"Failed to parse page JSON data",
@@ -149,9 +149,7 @@ pub fn is_transient(err: &str) -> bool {
 		"OAuth token has expired",
 		"Reddit blocked this request",
 		"Too many redirects from Reddit",
-		"Reddit comments request",
-		"Reddit returned an invalid comments response",
-		"Reddit comments API error",
+		"Reddit GraphQL",
 		crate::client::OAUTH_NOT_READY,
 	];
 	TRANSIENT.iter().any(|t| err.starts_with(t))
@@ -200,7 +198,7 @@ mod tests {
 		assert!(is_transient("Couldn't send request to Reddit: timeout | /r/rust"));
 		assert!(is_transient("Failed to parse page JSON data: expected value | /r/rust"));
 		assert!(is_transient("Reddit blocked this request (403 Forbidden) | /r/rust/hot.json"));
-		assert!(is_transient("Reddit comments request returned 502 Bad Gateway"));
+		assert!(is_transient("Reddit GraphQL PostComments returned 502 Bad Gateway"));
 		assert!(!is_transient("Post not found"));
 		assert!(!is_transient("banned"));
 		assert!(!is_transient("private"));

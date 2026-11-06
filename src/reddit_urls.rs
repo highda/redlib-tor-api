@@ -74,6 +74,14 @@ pub(crate) fn to_onion_url_for(url: &str, enabled: bool) -> String {
 
 	url
 		.replace(
+			"https://packaged-media.redd.it",
+			"https://packaged-media.redditdotzhmh3mao6r5i2j7speppwqkizwo7vksy3mbz5iz7rlhocyd.onion",
+		)
+		.replace(
+			"https://external-packaged-media.redd.it",
+			"https://external-packaged-media.redditdotzhmh3mao6r5i2j7speppwqkizwo7vksy3mbz5iz7rlhocyd.onion",
+		)
+		.replace(
 			"https://external-preview.redd.it",
 			"https://external-preview.redditdotzhmh3mao6r5i2j7speppwqkizwo7vksy3mbz5iz7rlhocyd.onion",
 		)
@@ -108,6 +116,14 @@ pub(crate) fn to_onion_url_for(url: &str, enabled: bool) -> String {
 
 pub(crate) fn to_clearnet_url(url: &str) -> String {
 	url
+		.replace(
+			"https://packaged-media.redditdotzhmh3mao6r5i2j7speppwqkizwo7vksy3mbz5iz7rlhocyd.onion",
+			"https://packaged-media.redd.it",
+		)
+		.replace(
+			"https://external-packaged-media.redditdotzhmh3mao6r5i2j7speppwqkizwo7vksy3mbz5iz7rlhocyd.onion",
+			"https://external-packaged-media.redd.it",
+		)
 		.replace("https://www.reddittorjg6rue252oqsxryoxengawnmo46qy4kyii5wtqnwfj4ooad.onion", "https://www.reddit.com")
 		.replace("https://old.reddittorjg6rue252oqsxryoxengawnmo46qy4kyii5wtqnwfj4ooad.onion", "https://old.reddit.com")
 		.replace("https://np.reddittorjg6rue252oqsxryoxengawnmo46qy4kyii5wtqnwfj4ooad.onion", "https://np.reddit.com")
@@ -155,6 +171,17 @@ mod tests {
 			to_onion_url_for("https://a.thumbs.redditmedia.com/thumb.jpg", true),
 			"https://a.thumbs.reddit4hkhcpcf2mkmuotdlk3gknuzcatsw4f7dx7twdkwmtrt6ax4qd.onion/thumb.jpg"
 		);
+	}
+
+	#[test]
+	fn packaged_media_roundtrips_through_onion_hosts() {
+		for host in ["packaged-media", "external-packaged-media"] {
+			let url = format!("https://{host}.redd.it/foo/video.mp4?e=1&s=a%2Bb");
+			let onion_url = format!("https://{host}.{REDDIT_DOT_ONION}/foo/video.mp4?e=1&s=a%2Bb");
+			assert_eq!(to_onion_url_for(&url, true), onion_url);
+			assert_eq!(to_onion_url_for(&url, false), url);
+			assert_eq!(to_clearnet_url(&onion_url), url);
+		}
 	}
 
 	#[test]

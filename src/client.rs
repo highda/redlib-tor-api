@@ -1,4 +1,5 @@
 use crate::dbg_msg;
+use crate::gql_feed;
 use crate::oauth::{force_refresh_token, token_daemon, Oauth, OauthBackendImpl};
 use crate::reddit_health;
 use crate::reddit_urls;
@@ -13,11 +14,11 @@ use log::{error, info, trace, warn};
 use percent_encoding::{percent_encode, CONTROLS};
 use serde_json::Value;
 use std::borrow::Cow;
+use std::collections::HashMap;
+use std::future::Future;
 use std::result::Result;
 use std::sync::atomic::Ordering;
 use std::sync::atomic::{AtomicBool, AtomicU16};
-use std::collections::HashMap;
-use std::future::Future;
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use std::time::Duration;
 use tokio::sync::{watch, OnceCell};
@@ -296,7 +297,14 @@ fn reddit_short_head(path: String, quarantine: bool, base_path: &'static str, ho
 /// Makes a request to Reddit. With `redirects` set, `request` recurses on the
 /// URL that Reddit provides in the Location HTTP header in its response, at
 /// most that many times; with `None`, the redirect itself is returned.
-fn request(method: &'static Method, path: String, redirects: Option<u8>, quarantine: bool, base_path: &'static str, host: &'static str) -> Boxed<Result<WreqResponse, String>> {
+fn request(
+	method: &'static Method,
+	path: String,
+	redirects: Option<u8>,
+	quarantine: bool,
+	base_path: &'static str,
+	host: &'static str,
+) -> Boxed<Result<WreqResponse, String>> {
 	// Keep the logical path unchanged for caches and diagnostics. Reddit blocks
 	// literal anonymous comments routes, so only rewrite the outgoing URL.
 	let api_path = onion_api_transport_path(&path, host);
@@ -539,11 +547,32 @@ impl Drop for InFlight {
 
 async fn fetch_json(path: String, quarantine: bool) -> Result<Value, String> {
 	coalesce(stale::key(&path, quarantine), async {
-		let result = fetch_json_once(path, quarantine).await;
+		let result = fetch_json_or_graphql(path, quarantine).await;
 		reddit_health::record_result(&result);
 		result
 	})
 	.await
+}
+
+/// The JSON API, except for what Reddit refuses it (`gql_feed::refused_by_json`).
+/// When it refuses anything else, GraphQL, which Reddit's own apps use, serves
+/// most of it, so the next block degrades instead of being an outage.
+async fn fetch_json_or_graphql(path: String, quarantine: bool) -> Result<Value, String> {
+	if gql_feed::refused_by_json(&path) {
+		if let Some(result) = gql_feed::route(&path, quarantine).await {
+			return result;
+		}
+	}
+	match fetch_json_once(path.clone(), quarantine).await {
+		Err(blocked) if blocked.starts_with("Reddit blocked this request") => match gql_feed::route(&path, quarantine).await {
+			None => Err(blocked),
+			// Handlers act on these exact answers.
+			Some(Err(e)) if matches!(e.as_str(), "private" | "banned" | "quarantined" | "gated") => Err(e),
+			Some(Err(e)) => Err(format!("{blocked}; GraphQL: {e}")),
+			Some(Ok(value)) => Ok(value),
+		},
+		other => other,
+	}
 }
 
 async fn fetch_json_once(path: String, quarantine: bool) -> Result<Value, String> {
