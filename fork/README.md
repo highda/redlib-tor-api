@@ -159,14 +159,22 @@ the limitations below.
 
 ## Known limitations
 
-- Reddit blocks anonymous API clients more each month. Since 2026-10-22 its onion API
-  answers any path ending in `.json` with a 403, so the client sends those paths without
-  the suffix (Reddit still returns JSON), and the comments JSON is blocked in every form,
-  so post pages and `/raw` threads come from Reddit's GraphQL API (`gql-fed` on the same
-  onion, upstream PR #603). If Reddit changes the persisted query hash, comments break
-  until the new hash is set in `REDLIB_GQL_POST_COMMENTS_HASH` (the `PostComments`
-  entry of [Amqx/reddit-gql](https://github.com/Amqx/reddit-gql/blob/main/src/operations.ts)
-  tracks it) or `src/gql.rs` is updated.
+- Reddit blocks anonymous API clients more each month, and is moving to a logged-in-only
+  site (see below). Its onion API answers any path ending in `.json` with a 403, so the client
+  sends those paths without the suffix (Reddit still returns JSON). Since about 2026-11 it also
+  refuses r/all, feeds sorted by new, post search and profile info, whatever the TLS
+  fingerprint (seven tested). Those paths, comments, and anything else it starts refusing come
+  from Reddit's GraphQL API (`gql-fed` on the same onion). Reddit can rotate GraphQL's
+  persisted query hashes: for comments, set the new one in `REDLIB_GQL_POST_COMMENTS_HASH`
+  (the `PostComments` entry of
+  [Amqx/reddit-gql](https://github.com/Amqx/reddit-gql/blob/main/src/operations.ts) tracks it);
+  the others are in `src/gql_feed.rs`.
+- Everything here is anonymous. Reddit's [Q3 2026 shareholder
+  letter](https://s203.q4cdn.com/380862485/files/doc_financials/2026/q3/v2/Q3-26-Shareholder-Letter.pdf)
+  announces a logged-in-only experience, tested in select markets outside the US in Q4. When
+  it reaches the onion and GraphQL, this fork will need a Reddit session, as
+  [Nachtalb/redlib](https://github.com/Nachtalb/redlib) already supports with
+  `REDLIB_REDDIT_COOKIE`.
 - Reddit's media onion (i/v/preview.redd.it) can stop answering while the API onion keeps
   working: listings load, every image times out. The examples' Tor healthcheck reports it
   as unhealthy and a Tor restart fixes it; Docker does not restart unhealthy containers by
@@ -287,6 +295,7 @@ behind a clearnet IP (session cookies, headless browsers) are left out on purpos
 | …which the error page's update check also uses, defaulting to this fork | Nachtalb | [Nachtalb/redlib](https://github.com/Nachtalb/redlib) `8de7e5d`, `9dc27ec` |
 | Spoofed Android app versions from APKMirror (2026.33-2026.42), Android 12-16 | polak14 | [polak14/redlib](https://github.com/polak14/redlib) `e19df3b`, script and list only |
 | "More replies" and "More comments" load in place on post pages | Nachtalb | [Nachtalb/redlib](https://github.com/Nachtalb/redlib) `d8958cb`, plus cursor pages |
+| Feeds, search, profiles, wiki and duplicates through GraphQL for what the JSON API refuses, and as fallback for any new block; muxed MP4s with sound | Kruno, polak14, baalajimaestro | [Downdoot](https://gitfield.org/fsky/downdoot) `1b03b15`, from [polak14/redlib](https://github.com/polak14/redlib) `29f1835` via [baalajimaestro/redlib](https://git.ptr.moe/baalajimaestro/redlib) `d91201a` |
 
 baalajimaestro's `a86b3e0` also restores comments, by scraping Reddit's Shreddit HTML
 fragments (about 1,000 lines plus the `scraper` crate). This fork uses the GraphQL route
@@ -295,6 +304,11 @@ the live smoke test. If GraphQL breaks, his scraper is the fallback to port.
 
 This fork's own follow-ups: an HTML 404 is reported as not found, GraphQL goes to the
 onion, and `/raw` serves threads through GraphQL.
+
+The GraphQL feeds (`src/gql_feed.rs`) come from Downdoot: Kruno adapted polak14's
+implementation as carried by baalajimaestro's fork. This fork adds the onion routing of the
+new media hosts (baalajimaestro's), the fields API clients require, and its own measurement of
+what Reddit's onion API refuses.
 
 ### Ideas from other forks
 

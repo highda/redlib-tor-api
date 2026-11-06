@@ -93,12 +93,19 @@ Path segments in `{}`; `?` marks optional ones.
 - `sort`: none, `popular`, `new`, `default`, or `search` (needs `q`; `nsfw=on` includes NSFW).
 - JSON: `{ info, links: [{ created, id, display_name, display_name_prefixed, public_description, url, subscribers, over_18, title, subreddit_front }] }`. RSS: one item per subreddit.
 
+## Cursors
+
+`after` is opaque. Usually a fullname (`t3_abc`), but feeds that come from GraphQL can give
+others: `rust:t3_abc,linux:t3_def` for `/r/a+b`, or an offset such as `MjQ=` for search.
+Send it back URL-encoded.
+
 ## Media
 
 Teddit downloaded media to disk and served `/pics/...` and `/vids/...`. Here media
 URLs point at `/media/{host}/{path}?{query}`, which teddit-api streams from Redlib
 (`/raw/media/...`, through Tor) for the Reddit media hosts Redlib proxies:
 `i.redd.it`, `v.redd.it`, `preview.redd.it`, `external-preview.redd.it`,
+`packaged-media.redd.it`, `external-packaged-media.redd.it`,
 `{a,b}.thumbs.redditmedia.com`, `emoji.redditmedia.com`, `styles.redditmedia.com`,
 `www.redditstatic.com`. Other hosts Teddit accepted (`i.imgur.com`, `i.ytimg.com`,
 `thumbs.gfycat.com`) are returned as their original absolute URLs.

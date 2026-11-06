@@ -131,6 +131,14 @@ if (( ! OFFLINE )); then
   check stealth_post_more    "$POST?api&cursor=$MORE$ST"             200 "$J" '(.[1].data.children | length) > 0 and .[1].data.children[0].kind == "t1"'
   check post_sort_random     "$POST?api&sort=random$ST"              200 "$J" '.[1].data.sort == "random"'
   check custom_feed          '/u/kn0thing/m/good?api'                200 "$J" '(.links | length) > 0'
+  # Reddit's JSON API refuses these (2026-11); they come from GraphQL
+  check graphql_new          "/r/rust/new?api$ST"                    200 "$J" '.kind == "Listing" and (.data.children | length) > 0'
+  check graphql_new_multi    "/r/rust+linux/new?api$ST"              200 "$J" '[.data.children[].data.subreddit | ascii_downcase] | unique == ["linux", "rust"]'
+  check graphql_all          "/r/all?api$ST"                         200 "$J" '(.data.children | length) > 10'
+  check graphql_search       "/search?api&q=linux$ST"                200 "$J" '(.data.children | length) > 0'
+  check graphql_user_about   "/u/kn0thing/submitted?api$ST"          200 "$J" '.about.data.name == "kn0thing"'
+  AFTER_NEW="$(jq -r '.data.after' "$TMP/last_graphql_new_multi" | jq -sRr @uri)"
+  check graphql_new_page2    "/r/rust+linux/new?api&after=$AFTER_NEW$ST" 200 "$J" '(.data.children | length) > 0'
 fi
 
 # Redlib HTML (needs the real Redlib, so skipped offline)
